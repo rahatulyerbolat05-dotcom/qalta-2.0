@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 // Builds index.html (the self-extracting bundle) from src/.
-//   node tools/build.js              rewrite index.html in place
+//   node tools/build.js              rewrite index.html in place (and stamp sw.js)
 //   node tools/build.js --out f.html write somewhere else (index.html is still the base wrapper)
 // The wrapper (loader, React, the dc-runtime, bundled fonts) stays as it is in index.html;
 // this tool replaces the template and drops bundle assets nothing references any more.
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const cp = require("child_process");
+const crypto = require("crypto");
 
 const ROOT = path.join(__dirname, "..");
 const SRC = path.join(ROOT, "src");
-const read = rel => fs.readFileSync(path.join(SRC, rel), "utf8");
+// Line endings are normalised so the bundle (and its hash) is the same on every machine.
+const lf = text => text.replace(/\r\n/g, "\n");
+const read = rel => lf(fs.readFileSync(path.join(SRC, rel), "utf8"));
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 // src/*.js are CommonJS modules; inside the bundle each becomes a const holding its exports.
@@ -19,11 +21,36 @@ function wrapModule(name, code) {
   return "const " + name + " = (function () {\nvar module = { exports: {} }, exports = module.exports;\n" + code + "\nreturn module.exports;\n})();\n";
 }
 
+function walk(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]).sort();
+}
+
+// Identifies the sources a bundle was built from. Deterministic: building unchanged sources gives the
+// same bundle, so a rebuild after a commit is not a change.
+function sourceHash() {
+  const h = crypto.createHash("sha1");
+  walk(SRC).forEach(f => { h.update(path.relative(SRC, f).split(path.sep).join("/") + "\n" + lf(fs.readFileSync(f, "utf8")) + "\n"); });
+  return h.digest("hex").slice(0, 7);
+}
+
 function version() {
-  let hash = "dev";
-  try { hash = cp.execSync("git rev-parse --short HEAD", { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || "dev"; } catch (e) {}
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-  return { version: pkg.version, hash: hash };
+  return { version: pkg.version, hash: sourceHash() };
+}
+
+// The offline shell's cache name follows the files it serves, so a release never reuses an old cache.
+const SHELL_FILES = ["index.html", "sync-engine.js", "firebase-config.js", "manifest.json"];
+function shellHash() {
+  const h = crypto.createHash("sha1");
+  SHELL_FILES.forEach(f => { h.update(f + "\n" + lf(fs.readFileSync(path.join(ROOT, f), "utf8")) + "\n"); });
+  return h.digest("hex").slice(0, 8);
+}
+function stampServiceWorker() {
+  const file = path.join(ROOT, "sw.js"), src = fs.readFileSync(file, "utf8");
+  const next = src.replace(/const VERSION = "[^"]*";/, () => 'const VERSION = "qalta-shell-' + shellHash() + '";');
+  if (next !== src) fs.writeFileSync(file, next);
+  return next.match(/const VERSION = "([^"]*)"/)[1];
 }
 
 function buildScript() {
@@ -80,7 +107,7 @@ function pack(template, basePath, outPath) {
   return { size: out.length, assets: Object.keys(pruned).length, dropped: Object.keys(manifest).length - Object.keys(pruned).length };
 }
 
-module.exports = { buildScript, buildTemplate, buildCss, pack, version };
+module.exports = { buildScript, buildTemplate, buildCss, pack, version, sourceHash, shellHash, SHELL_FILES };
 
 if (require.main === module) {
   const i = process.argv.indexOf("--out");
@@ -88,4 +115,5 @@ if (require.main === module) {
   const out = i > 0 ? path.resolve(process.argv[i + 1]) : base;
   const r = pack(buildTemplate(), base, out);
   console.log("built " + path.relative(ROOT, out) + ": " + (r.size / 1024).toFixed(0) + " KB, " + r.assets + " bundled assets (" + r.dropped + " unused dropped)");
+  if (out === base) console.log("offline shell cache: " + stampServiceWorker());
 }

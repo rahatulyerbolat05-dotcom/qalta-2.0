@@ -26,6 +26,10 @@
         ]
       },
       {
+        "source": "/",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
         "source": "/@(index.html|sw.js|sync-engine.js|firebase-config.js|manifest.json)",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },

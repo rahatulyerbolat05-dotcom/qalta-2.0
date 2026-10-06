@@ -25,8 +25,9 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  var SETTINGS_KEYS = ["hex", "skin", "set", "lang", "eCats", "iCats", "catColors", "catSizes", "catIcons", "budget", "openCash", "openCard"];
+  var SETTINGS_KEYS = ["hex", "skin", "set", "lang", "eCats", "iCats", "catColors", "catSizes", "catIcons", "budget", "openCash", "openCard", "openCashAt", "openCardAt"];
   var MAX_AMOUNT = 999999999;
+  var DAY = 86400000;
   var KINDS = ["ops", "debts", "meta"];
   var BATCH = 400;
 
@@ -46,14 +47,14 @@
 
   // ---------- validation of anything that comes from the cloud ----------
   function cleanOp(d) {
-    if (!d || typeof d !== "object" || !fin(d.id) || !fin(d.sum)) return null;
+    if (!d || typeof d !== "object" || !fin(d.id) || !fin(d.sum) || Math.abs(d.sum) > MAX_AMOUNT) return null;
     if (!/^\d{1,2}\.\d{1,2}$/.test(String(d.date || ""))) return null;
     var o = { id: d.id, date: String(d.date), cat: str(d.cat, 60) || "Прочее", note: str(d.note, 200), sum: Math.round(d.sum), pay: d.pay === "cash" ? "cash" : "card" };
     if (fin(d.ts) && d.ts > 0 && d.ts < 8.64e15) o.ts = Math.round(d.ts);   // v2: the moment of the operation
     return o;
   }
   function cleanLog(list) {
-    return (Array.isArray(list) ? list : []).slice(0, 500).filter(function (p) { return p && fin(p.sum); }).map(function (p) {
+    return (Array.isArray(list) ? list : []).slice(0, 500).filter(function (p) { return p && fin(p.sum) && Math.abs(p.sum) <= MAX_AMOUNT; }).map(function (p) {
       var e = { sum: Math.round(p.sum), date: str(p.date, 10) };
       if (typeof p.id === "string" && p.id) e.id = p.id.slice(0, 40);
       if (fin(p.ts) && p.ts > 0) e.ts = Math.round(p.ts);
@@ -61,7 +62,7 @@
     });
   }
   function cleanDebt(d) {
-    if (!d || typeof d !== "object" || !fin(d.id) || !fin(d.sum) || d.sum < 0) return null;
+    if (!d || typeof d !== "object" || !fin(d.id) || !fin(d.sum) || d.sum < 0 || d.sum > MAX_AMOUNT) return null;
     var sum = Math.round(d.sum);
     var o = {
       id: d.id, who: str(d.who, 60) || "—", note: str(d.note, 200), sum: sum, mine: !!d.mine,
@@ -88,7 +89,7 @@
       o.catColors = {};
       Object.keys(d.catColors).slice(0, 300).forEach(function (k) {
         var v = d.catColors[k];
-        if (safeKey(k) && typeof v === "string" && v.length <= 64 && !/[;{}<>"']/.test(v)) o.catColors[k] = v;
+        if (safeKey(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) o.catColors[k] = v;
       });
     }
     if (d.catIcons && typeof d.catIcons === "object" && !Array.isArray(d.catIcons)) {
@@ -101,6 +102,10 @@
     if (fin(d.budget) && d.budget > 0) o.budget = Math.min(MAX_AMOUNT, Math.round(d.budget));
     ["openCash", "openCard"].forEach(function (k) {
       if (fin(d[k])) o[k] = Math.max(-MAX_AMOUNT * 100, Math.min(MAX_AMOUNT * 100, Math.round(d[k])));
+    });
+    // the moment a balance was typed in: only operations from then on move it
+    ["openCashAt", "openCardAt"].forEach(function (k) {
+      if (fin(d[k]) && d[k] > 0 && d[k] < 8.64e15) o[k] = Math.round(d[k]);
     });
     if (d.catSizes && typeof d.catSizes === "object" && !Array.isArray(d.catSizes)) {
       o.catSizes = {};
@@ -173,12 +178,20 @@
     ["closedAt", "reason", "due", "ts"].forEach(function (k) {
       if (cur[k] !== base[k]) { p[k] = cur[k] === undefined ? fv.delete() : cur[k]; changed = true; }
     });
-    var dp = (cur.paid || 0) - (base.paid || 0);
-    if (dp) { p.paid = fv.increment(dp); changed = true; }
-    var have = {};
+    var have = {}, now = {};
     logKeys(base.log).forEach(function (x) { have[x.key] = 1; });
-    var add = logKeys(cur.log).filter(function (x) { return !have[x.key]; }).map(function (x) { return x.e; });
-    if (add.length) { p.log = fv.arrayUnion.apply(null, add); changed = true; }
+    logKeys(cur.log).forEach(function (x) { now[x.key] = 1; });
+    var removed = logKeys(base.log).some(function (x) { return !now[x.key]; });
+    if (removed) {
+      // increment / arrayUnion cannot take a repayment back (undo, deleting a log row, reopening a debt):
+      // replace both fields so every device ends up with the same log.
+      p.paid = cur.paid || 0; p.log = cur.log || []; changed = true;
+    } else {
+      var dp = (cur.paid || 0) - (base.paid || 0);
+      if (dp) { p.paid = fv.increment(dp); changed = true; }
+      var add = logKeys(cur.log).filter(function (x) { return !have[x.key]; }).map(function (x) { return x.e; });
+      if (add.length) { p.log = fv.arrayUnion.apply(null, add); changed = true; }
+    }
     return changed ? p : null;
   }
 
@@ -242,51 +255,99 @@
     this.clearTimer = o.clearTimer || function (t) { clearTimeout(t); };
     this.root = "users/" + this.uid;
     this.skey = "qalta-sync-v2:" + this.uid;
-    this.pending = 0; this.err = false; this.unsubs = []; this.init = {}; this.timer = null; this.stopped = false;
+    this.pending = 0; this.pushErr = false; this.pushFails = 0; this.errs = {};
+    this.unsubs = []; this.relisten = []; this.init = {}; this.timer = null; this.stopped = false;
+    this.gen = this.genOf();
     this.load();
   }
   var P = Engine.prototype;
 
+  // Identity of the local copy of the data (kept inside the app's own storage blob). The shadow below
+  // describes one particular copy; if that copy is lost or replaced, the shadow must not be trusted.
+  P.genOf = function () {
+    var st = this.getState ? this.getState() : null;
+    return st && typeof st.gen === "string" ? st.gen : undefined;
+  };
   P.load = function () {
     var raw = null;
     try { raw = this.storage.getItem(this.skey); } catch (e) {}
     var s = null;
     try { s = raw ? JSON.parse(raw) : null; } catch (e) { s = null; }
-    if (s && s.v === 1 && s.e && typeof s.e === "object") { this.e = s.e; this.lastU = fin(s.lastU) ? s.lastU : 0; this.synced = !!s.synced; }
-    else { this.e = {}; this.lastU = 0; this.synced = false; }
+    if (s && s.v === 1 && s.e && typeof s.e === "object" && s.g === this.gen) {
+      this.e = s.e; this.lastU = fin(s.lastU) ? Math.min(s.lastU, this.now() + DAY) : 0; this.synced = !!s.synced;
+    } else { this.e = {}; this.lastU = 0; this.synced = false; }
   };
   P.save = function () {
-    try { this.storage.setItem(this.skey, JSON.stringify({ v: 1, lastU: this.lastU, synced: this.synced, e: this.e })); }
+    try { this.storage.setItem(this.skey, JSON.stringify({ v: 1, g: this.gen, lastU: this.lastU, synced: this.synced, e: this.e })); }
     catch (e) { if (typeof console !== "undefined") console.error("[qalta-sync] cannot persist sync state", e); }
   };
   P.nextU = function () { this.lastU = Math.max(this.now(), this.lastU + 1); return this.lastU; };
+  // A stamp from the cloud is trusted only up to a day ahead of this clock: one absurd value must not
+  // pin every later stamp (and every conflict) to itself.
+  P.stamp = function (u) { return fin(u) && u > 0 ? Math.min(u, this.now() + DAY) : null; };
+
+  // If the local copy was replaced (storage lost or unreadable and recreated, data adopted from another
+  // tab), every shadow entry missing locally would read as "deleted" and the first push would erase the
+  // cloud. Start over as a new device instead: the cloud is merged back in, nothing is deleted.
+  P.checkGen = function () {
+    var g = this.genOf();
+    if (g === this.gen) return false;
+    this.gen = g;
+    this.detach();
+    this.e = {}; this.synced = false; this.init = {}; this.pushFails = 0;
+    this.save();
+    this.start();
+    return true;
+  };
 
   P.start = function () {
-    var self = this;
     this.stopped = false;
-    KINDS.forEach(function (kind) {
-      // includeMetadataChanges: an empty collection must still tell us when the
-      // snapshot stops being cache-only (otherwise a fresh device would wait forever).
-      var unsub = self.db.collection(self.root + "/" + kind).onSnapshot({ includeMetadataChanges: true }, function (snap) {
-        if (!self.stopped) self.onSnap(kind, snap);
-      }, function (err) { self.fail(err); });
-      self.unsubs.push(unsub);
-    });
+    KINDS.forEach(function (kind) { this.listen(kind, 0); }, this);
     this.status();
+    // Edits made while the engine was not running (offline start, tab closed inside the push delay).
+    if (this.synced) this.pushSoon(1500);
   };
-  P.stop = function () {
-    this.stopped = true;
+  P.listen = function (kind, attempt) {
+    var self = this;
+    // includeMetadataChanges: an empty collection must still tell us when the
+    // snapshot stops being cache-only (otherwise a fresh device would wait forever).
+    var unsub = this.db.collection(this.root + "/" + kind).onSnapshot({ includeMetadataChanges: true }, function (snap) {
+      if (self.stopped) return;
+      attempt = 0;
+      self.onSnap(kind, snap);
+    }, function (err) {
+      if (self.stopped) return;
+      self.fail(err, kind);
+      // a failed listener is dead for good: subscribe again later
+      var wait = Math.min(60000, 3000 * Math.pow(2, attempt));
+      self.relisten.push(self.setTimer(function () { if (!self.stopped) self.listen(kind, attempt + 1); }, wait));
+    });
+    this.unsubs.push(unsub);
+  };
+  P.detach = function () {
+    var self = this;
     this.unsubs.forEach(function (u) { try { u(); } catch (e) {} });
     this.unsubs = [];
-    this.clearTimer(this.timer);
+    this.relisten.forEach(function (t) { self.clearTimer(t); });
+    this.relisten = [];
+    this.clearTimer(this.timer); this.timer = null;
   };
-  P.fail = function (err) {
+  P.stop = function () { this.stopped = true; this.detach(); };
+  // Best effort when the page is going away: send what is waiting instead of waiting for the delay.
+  P.flush = function () {
+    if (this.stopped || !this.synced) return;
+    this.clearTimer(this.timer); this.timer = null;
+    this.push();
+  };
+  P.fail = function (err, kind) {
     if (typeof console !== "undefined") console.error("[qalta-sync]", err);
-    this.err = true; this.status();
+    if (kind) this.errs[kind] = true; else this.pushErr = true;
+    this.status();
   };
 
   P.status = function () {
-    var st = this.err ? "error" : !this.isOnline() ? "offline" : !this.synced ? "loading" : this.pending > 0 ? "saving" : "synced";
+    var failing = this.pushErr || Object.keys(this.errs).length > 0;
+    var st = failing ? "error" : !this.isOnline() ? "offline" : !this.synced ? "loading" : this.pending > 0 ? "saving" : "synced";
     if (st !== this._lastStatus) { this._lastStatus = st; this.onStatus(st); }
   };
 
@@ -300,7 +361,8 @@
   };
 
   P.onSnap = function (kind, snap) {
-    this.err = false;
+    if (this.checkGen()) return;
+    delete this.errs[kind];                 // this listener works; others may not
     var docs = this.docsOf(snap);
     if (!this.synced) {
       // A device that never synced this account needs the full server state
@@ -324,8 +386,10 @@
   P.applyDocs = function (kind, docs) {
     var self = this, ents = toEntities(this.getState()), changes = [], repush = false;
     docs.forEach(function (d) {
-      if (d.pending || !d.data || !fin(d.data._u)) return;
-      var key = kind + "/" + d.id, r = d.data, ru = r._u, s = self.e[key];
+      if (d.pending || !d.data) return;
+      var ru = self.stamp(d.data._u);
+      if (ru === null) return;
+      var key = kind + "/" + d.id, r = d.data, s = self.e[key];
       self.lastU = Math.max(self.lastU, ru);
       var c = r._del ? null : clean(kind, r);
       if (!r._del && !c) return;
@@ -370,9 +434,11 @@
     var self = this, remote = {}, count = 0;
     KINDS.forEach(function (kind) {
       self.init[kind].forEach(function (d) {
-        if (!d.data || !fin(d.data._u)) return;
+        if (!d.data) return;
+        var u = self.stamp(d.data._u);
+        if (u === null) return;
         remote[kind + "/" + d.id] = d.data; count++;
-        self.lastU = Math.max(self.lastU, d.data._u);
+        self.lastU = Math.max(self.lastU, u);
       });
     });
     var seed = this.isSeed(), changes = [], reset = false;
@@ -385,7 +451,7 @@
       var kind = key.split("/")[0], r = remote[key];
       var c = r._del ? null : clean(kind, r);
       if (!r._del && !c) return;
-      self.e[key] = { h: r._del ? "" : canon(c), u: r._u, d: String(r._d), del: !!r._del, b: kind === "debts" ? c : undefined };
+      self.e[key] = { h: r._del ? "" : canon(c), u: self.stamp(r._u), d: String(r._d), del: !!r._del, b: kind === "debts" ? c : undefined };
       changes.push({ key: key, del: !!r._del, data: c });
     });
     this.synced = true;
@@ -403,7 +469,7 @@
   };
 
   P.push = function () {
-    if (this.stopped || !this.synced) return;
+    if (this.stopped || this.checkGen() || !this.synced) return;
     var cur = toEntities(this.getState()), writes = [], key;
     for (key in cur) {
       var h = canon(cur[key]), s = this.e[key], isDebt = key.indexOf("debts/") === 0;
@@ -439,14 +505,17 @@
     });
     this.pending++;
     batch.commit().then(function () {
-      self.pending--; self.err = false; self.status();
+      self.pending--; self.pushErr = false; self.pushFails = 0; self.status();
     }, function (err) {
       self.pending--;
       // rejected for good (e.g. permission): forget the optimistic shadow so the next push retries
       chunk.forEach(function (w) { if (w.prev) self.e[w.key] = w.prev; else delete self.e[w.key]; });
       self.save(); self.fail(err);
+      // ... and make sure there is a next push: without it the edit would wait for an unrelated change
+      self.pushFails++;
+      if (!self.stopped) self.pushSoon(Math.min(60000, 3000 * Math.pow(2, self.pushFails - 1)));
     });
   };
 
-  return { Engine: Engine, reduce: reduce, toEntities: toEntities, mergeDebt: mergeDebt, canon: canon, clean: clean, SETTINGS_KEYS: SETTINGS_KEYS };
+  return { Engine: Engine, reduce: reduce, toEntities: toEntities, mergeDebt: mergeDebt, debtPatch: debtPatch, canon: canon, clean: clean, SETTINGS_KEYS: SETTINGS_KEYS };
 });

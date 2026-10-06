@@ -39,13 +39,14 @@ class Server {
   }
 }
 class Client {
-  constructor(server) { this.server = server; this.online = true; this.cache = new Map(); this.queue = []; this.listeners = []; server.clients.add(this); }
+  constructor(server) { this.server = server; this.online = true; this.cache = new Map(); this.queue = []; this.listeners = []; this.rejectCommits = 0; server.clients.add(this); }
+  failListener(kind) { this.listeners.filter(l => l.path.endsWith("/" + kind)).forEach(l => l.err && l.err(new Error("listen failed: " + kind))); }
   collection(path) {
     const self = this;
     return {
       doc: id => ({ id, path: path + "/" + id }),
-      onSnapshot(opts, next) {
-        const l = { path, next }; self.listeners.push(l);
+      onSnapshot(opts, next, err) {
+        const l = { path, next, err }; self.listeners.push(l);
         const docs = [];
         if (self.online) for (const [p, d] of self.server.docs) if (p.startsWith(path + "/") && p.indexOf("/", path.length + 1) < 0) { self.cache.set(p, clone(d)); }
         for (const [p, d] of self.cache) if (p.startsWith(path + "/")) docs.push({ p, d });
@@ -77,6 +78,7 @@ class Client {
     return {
       set(ref, data, opts) { ops.push({ path: ref.path, data: clone(data), merge: !!(opts && opts.merge) }); },
       commit() {
+        if (self.rejectCommits > 0) { self.rejectCommits--; return Promise.reject(new Error("permission-denied")); }
         return new Promise(res => {
           self.queue.push({ ops, res });
           ops.forEach(o => { const nv = applyData(self.cache.get(o.path), o.data, o.merge); self.cache.set(o.path, nv); self.notify(o.path, nv, true); });
@@ -111,8 +113,8 @@ function device(server, name, opts = {}) {
     db: client, uid: "u1", deviceId: opts.deviceId || name, fieldValue: FV,
     storage: d.storage || undefined,
     now: () => d.clock,
-    setTimer: fn => { fn(); return 0; },
-    clearTimer: () => {},
+    setTimer: opts.setTimer || (fn => { fn(); return 0; }),
+    clearTimer: opts.clearTimer || (() => {}),
     isOnline: () => client.online,
     getState: () => d.state,
     isSeed: () => d.seed,
@@ -434,4 +436,139 @@ test("v2: malformed new fields from the cloud are dropped by clean()", () => {
   assert.equal(st.openCard, 13);
   assert.deepEqual(st.catIcons, { a: "ok-icon" });
   assert.ok(Sync.SETTINGS_KEYS.indexOf("budget") >= 0 && Sync.SETTINGS_KEYS.indexOf("catIcons") >= 0);
+});
+
+// ---------- safety nets found by the independent review ----------
+const memStorage = () => { const m = {}; return { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: k => { delete m[k]; }, m }; };
+const liveOps = s => [...s.docs.entries()].filter(([k, v]) => k.includes("/ops/") && !v._del).length;
+
+test("taking a repayment back (undo, deleting a log row, reopening) reaches the other device", async () => {
+  const s = new Server();
+  const A = device(s, "A", { state: { debts: [debt(BASE + 7, { paid: 3000, log: [{ sum: 3000, date: "05.10", id: "a1" }] })] } }); A.start(); await tick();
+  const B = device(s, "B"); B.start(); await tick();
+  assert.equal(B.state.debts[0].paid, 3000);
+  A.edit(st => { st.debts[0] = Object.assign({}, st.debts[0], { paid: 0, log: [] }); });
+  await tick();
+  assert.equal(B.state.debts[0].paid, 0);
+  assert.equal(B.state.debts[0].log.length, 0);
+  const doc = s.docs.get("users/u1/debts/" + (BASE + 7));
+  assert.equal(doc.paid, 0);
+  assert.deepEqual(doc.log, []);
+});
+
+test("debtPatch(): repayments are added with transforms, but a removal replaces paid and log", () => {
+  const base = { id: 1, who: "A", note: "", sum: 100, mine: true, paid: 40, log: [{ sum: 40, date: "01.10", id: "x" }], closed: false };
+  const added = Sync.debtPatch(base, Object.assign({}, base, { paid: 50, log: base.log.concat([{ sum: 10, date: "02.10", id: "y" }]) }), FV);
+  assert.deepEqual(added.paid, { __t: "inc", n: 10 });
+  assert.equal(added.log.__t, "union");
+  const taken = Sync.debtPatch(base, Object.assign({}, base, { paid: 0, log: [] }), FV);
+  assert.equal(taken.paid, 0);
+  assert.deepEqual(taken.log, []);
+});
+
+test("a lost local copy does not erase the cloud: the shadow of a different copy is discarded", async () => {
+  const storage = memStorage(), s = new Server();
+  const A1 = device(s, "A", { storage, state: { gen: "copy-one-aaaa", ops: [op(BASE + 1), op(BASE + 2), op(BASE + 3)] } });
+  A1.start(); await tick();
+  assert.equal(liveOps(s), 3);
+  A1.engine.stop();
+  // the app's storage blob was unreadable and recreated empty (new identity); the sync shadow survived
+  const A2 = device(s, "A", { storage, state: { gen: "copy-two-bbbb", ops: [] } });
+  A2.start(); await tick();
+  A2.edit(st => { st.ops.unshift(op(BASE + 4)); });
+  await tick();
+  assert.equal(liveOps(s), 4, "nothing was deleted in the cloud");
+  assert.equal(A2.state.ops.length, 4, "the cloud data came back to the device");
+});
+
+test("if the local copy is swapped while the engine runs it resyncs instead of deleting", async () => {
+  const s = new Server();
+  const A = device(s, "A", { state: { gen: "copy-one-aaaa", ops: [op(BASE + 1), op(BASE + 2), op(BASE + 3)] } });
+  A.start(); await tick();
+  A.state.gen = "copy-two-bbbb"; A.state.ops = [op(BASE + 9)];   // e.g. data adopted from another tab
+  A.engine.push(); await tick();
+  assert.equal(liveOps(s), 4);
+  assert.equal(A.state.ops.length, 4);
+});
+
+test("an upgrade from a shadow without identity does one fresh reconcile and loses nothing", async () => {
+  const storage = memStorage(), s = new Server();
+  const A1 = device(s, "A", { storage, state: { ops: [op(BASE + 1), op(BASE + 2)] } });   // old client: no gen
+  A1.start(); await tick();
+  A1.engine.stop();
+  const A2 = device(s, "A", { storage, state: { gen: "first-run-gen", ops: [op(BASE + 1), op(BASE + 2)] } });
+  A2.start(); await tick();
+  assert.equal(A2.engine.synced, true);
+  assert.equal(liveOps(s), 2);
+  assert.equal(A2.state.ops.length, 2);
+});
+
+test("a restarted engine sends edits that were made while it was not running", async () => {
+  const storage = memStorage(), s = new Server();
+  const A1 = device(s, "A", { storage, state: { ops: [op(BASE + 1)] } }); A1.start(); await tick();
+  A1.engine.stop();
+  const state = clone(A1.state); state.ops.push(op(BASE + 2));
+  const A2 = device(s, "A", { storage, state });
+  A2.start(); await tick();                                           // no explicit push(): start() takes care of it
+  assert.ok(s.docs.has("users/u1/ops/" + (BASE + 2)));
+});
+
+test("flush() sends what is waiting instead of waiting for the delay (page is closing)", async () => {
+  const s = new Server(); const timers = [];
+  const A = device(s, "A", { state: { ops: [op(BASE + 1)] }, setTimer: fn => { timers.push(fn); return timers.length; } });
+  A.start(); await tick();
+  timers.splice(0).forEach(f => f());                                  // initial reconcile push
+  await tick();
+  A.state.ops.unshift(op(BASE + 2));
+  A.engine.pushSoon();                                                 // delayed: nothing sent yet
+  assert.ok(!s.docs.has("users/u1/ops/" + (BASE + 2)));
+  A.engine.flush(); await tick();
+  assert.ok(s.docs.has("users/u1/ops/" + (BASE + 2)));
+});
+
+test("a rejected write is retried later, and the error clears once it goes through", async () => {
+  const s = new Server(); const timers = []; const statuses = [];
+  const A = device(s, "A", { state: { ops: [] }, setTimer: fn => { timers.push(fn); return timers.length; } });
+  A.engine.onStatus = st => statuses.push(st);
+  A.start(); await tick(); timers.splice(0).forEach(f => f()); await tick();
+  A.client.rejectCommits = 1;
+  A.state.ops.unshift(op(BASE + 5));
+  A.engine.push(); await tick();
+  assert.equal(A.engine._lastStatus, "error");
+  assert.ok(!s.docs.has("users/u1/ops/" + (BASE + 5)));
+  assert.equal(timers.length, 1, "a retry is scheduled by the engine itself");
+  timers.splice(0).forEach(f => f()); await tick();
+  assert.ok(s.docs.has("users/u1/ops/" + (BASE + 5)));
+  assert.equal(A.engine._lastStatus, "synced");
+});
+
+test("one failing listener keeps the error visible and is re-subscribed later", async () => {
+  const s = new Server(); const timers = [];
+  const A = device(s, "A", { state: { ops: [op(BASE + 1)] }, setTimer: fn => { timers.push(fn); return timers.length; } });
+  A.start(); await tick(); timers.splice(0).forEach(f => f()); await tick();
+  assert.equal(A.engine._lastStatus, "synced");
+  A.client.failListener("debts");
+  assert.equal(A.engine._lastStatus, "error");
+  // another collection delivering data must not hide the broken one
+  const B = device(s, "B"); B.start(); await tick();
+  B.edit(st => { st.ops.unshift(op(BASE + 3)); }); await tick();
+  assert.equal(A.engine._lastStatus, "error");
+  assert.equal(timers.length >= 1, true);
+  timers.splice(0).forEach(f => f()); await tick();                    // re-subscribe: the debts listener delivers again
+  assert.equal(A.engine._lastStatus, "synced");
+});
+
+test("absurd numbers from the cloud cannot poison stamps, amounts or colours", async () => {
+  const s = new Server();
+  s.docs.set("users/u1/ops/5", { id: 5, date: "05.10", cat: "x", note: "", sum: -10, pay: "card", _u: 1.7e308, _d: "evil" });
+  s.docs.set("users/u1/ops/6", { id: 6, date: "05.10", cat: "x", note: "", sum: 1e308, pay: "card", _u: 10, _d: "evil" });
+  s.docs.set("users/u1/meta/settings", { catColors: { a: "url(//evil/x)", b: "#AA00FF" }, openCashAt: 1.5e300, openCardAt: BASE, _u: 10, _d: "evil" });
+  const A = device(s, "A"); A.start(); await tick();
+  assert.deepEqual(A.state.ops.map(o => o.id), [5], "the op with an absurd amount is dropped, the one with an absurd stamp is kept");
+  assert.ok(A.engine.lastU <= A.clock + 86400000, "the stamp is clamped to a day ahead of this clock");
+  A.edit(st => { st.ops.unshift(op(BASE + 7)); });
+  assert.ok(isFinite(s.docs.get("users/u1/ops/" + (BASE + 7))._u));
+  assert.deepEqual(A.state.catColors, { b: "#AA00FF" });
+  assert.equal(A.state.openCashAt, undefined);
+  assert.equal(A.state.openCardAt, BASE);
 });
