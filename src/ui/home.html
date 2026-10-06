@@ -1,0 +1,102 @@
+<sc-if value="{{ isHome }}">
+<section class="q-fade" aria-labelledby="h-home">
+<header class="q-head">
+<div class="grow"><div class="t-sub muted">{{ dateLine }}</div><h1 id="h-home" class="t-large">{{ t.overview }}</h1></div>
+</header>
+<sc-if value="{{ hasBanner }}"><div class="q-banner" role="alert">{{ banner }}</div></sc-if>
+<div class="q-page">
+
+<sc-for list="{{ tips }}" as="tp">
+<div class="q-card q-tip">
+<span class="q-tile cc" style="--cl:{{ tp.c }};--cd:{{ tp.c }};--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ tp.d }}"></path></svg></span>
+<div class="grow">
+<div class="t-headline">{{ tp.title }}</div>
+<div class="t-sub muted">{{ tp.text }}</div>
+<div class="q-tip-actions">
+<button type="button" class="q-link" sc-camel-on-click="{{ tp.go }}">{{ tp.cta }}</button>
+<button type="button" class="q-link muted" sc-camel-on-click="{{ tp.skip }}">{{ t.later }}</button>
+</div>
+</div>
+</div>
+</sc-for>
+
+<div class="q-card q-month">
+<div class="t-callout muted semi">{{ monthName }}</div>
+<sc-if value="{{ hasBudget }}">
+<div class="q-month-row">
+<div class="q-ring-wrap" role="img" aria-label="{{ ringAria }}">
+<svg class="q-ring" sc-camel-view-box="0 0 120 120" aria-hidden="true">
+<circle class="trk" cx="60" cy="60" r="52"></circle>
+<circle class="arc" cx="60" cy="60" r="52" style="stroke:{{ ringColor }};stroke-dasharray:{{ ringDash }}"></circle>
+</svg>
+<div class="q-ring-c"><div class="q-pct num">{{ ringPct }}</div></div>
+</div>
+<div class="q-month-info">
+<div class="t-sub muted">{{ ringLabel }}</div>
+<div class="q-big num">{{ ringValue }}<small>&nbsp;₸</small></div>
+<div class="t-sub muted mt6">{{ paceText }}</div>
+</div>
+</div>
+<div class="t-foot muted">{{ spentOfText }}</div>
+</sc-if>
+<sc-if value="{{ noBudget }}">
+<div class="t-sub muted mt6">{{ t.spentLabel }}</div>
+<div class="q-big num">{{ spentText }}<small>&nbsp;₸</small></div>
+<button type="button" class="q-link nopad" sc-camel-on-click="{{ openBudget }}">{{ t.setBudget }}</button>
+</sc-if>
+</div>
+
+<sc-if value="{{ hasBreak }}">
+<div class="q-card">
+<h2 class="t-headline">{{ t.whereMoney }}</h2>
+<div class="q-bar" style="margin-top:12px" role="img" aria-label="{{ barAria }}">
+<sc-for list="{{ bar }}" as="b"><i class="cc" style="flex:{{ b.w }} 1 0;--cl:{{ b.cl }};--cd:{{ b.cd }}"></i></sc-for>
+</div>
+<div class="q-legend">
+<sc-for list="{{ legend }}" as="g">
+<div class="q-leg-row cc" style="--cl:{{ g.cl }};--cd:{{ g.cd }};--fl:{{ g.fl }};--fd:{{ g.fd }}">
+<span class="q-tile sm"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ g.d }}"></path></svg></span>
+<span class="grow t-callout ell">{{ g.name }}</span>
+<span class="t-callout semi num">{{ g.sum }}</span>
+<span class="t-sub muted num w-pct">{{ g.pct }}</span>
+</div>
+</sc-for>
+</div>
+<button type="button" class="q-link" sc-camel-on-click="{{ goHistory }}">{{ t.allOps }}</button>
+</div>
+</sc-if>
+
+<div class="q-sec-hd">
+<h2 class="t-title3">{{ t.accounts }}</h2>
+<sc-if value="{{ hasAccTotal }}"><span class="t-callout semi num">{{ accTotal }}</span></sc-if>
+</div>
+<div class="q-group">
+<sc-for list="{{ accounts }}" as="a">
+<div class="q-row tile" role="button" tabindex="0" aria-label="{{ a.aria }}" sc-camel-on-click="{{ a.tap }}">
+<span class="q-tile cc" style="--cl:{{ a.cl }};--cd:{{ a.cd }};--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ a.d }}"></path></svg></span>
+<span class="grow t-body">{{ a.label }}</span>
+<span class="q-val num {{ a.valCls }}">{{ a.value }}</span>
+<svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg>
+</div>
+</sc-for>
+</div>
+<div class="t-foot muted q-note">{{ t.debtsSeparate }}</div>
+
+<div class="q-sec-hd">
+<h2 class="t-title3">{{ t.recent }}</h2>
+<button type="button" class="q-link" sc-camel-on-click="{{ goHistory }}">{{ t.all }}</button>
+</div>
+<div class="q-group">
+<sc-for list="{{ recent }}" as="r">
+<div class="q-row tile {{ r.flash }}" role="button" tabindex="0" aria-label="{{ r.aria }}" sc-camel-on-click="{{ r.tap }}">
+<span class="q-tile cc" style="--cl:{{ r.cl }};--cd:{{ r.cd }};--fl:{{ r.fl }};--fd:{{ r.fd }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ r.d }}"></path></svg></span>
+<span class="grow"><span class="t-body ell db">{{ r.name }}</span><span class="t-sub muted ell db">{{ r.sub }}</span></span>
+<span class="t-body semi num {{ r.amtCls }}">{{ r.amount }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ noRecent }}"><div class="q-empty t-callout">{{ t.noOpsYet }}</div></sc-if>
+</div>
+
+</div>
+</section>
+</sc-if>

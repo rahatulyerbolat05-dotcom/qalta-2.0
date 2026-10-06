@@ -1,0 +1,84 @@
+<sc-if value="{{ isSettings }}">
+<section class="q-fade" aria-labelledby="h-settings">
+<header class="q-head">
+<div class="grow"><h1 id="h-settings" class="t-large">{{ t.settings }}</h1></div>
+</header>
+<sc-if value="{{ hasBanner }}"><div class="q-banner" role="alert">{{ banner }}</div></sc-if>
+<div class="q-page">
+
+<div class="q-sec-hd first"><h2 class="t-foot muted caps">{{ t.budgetAccounts }}</h2></div>
+<div class="q-group">
+<sc-for list="{{ setBudgetRows }}" as="s">
+<div class="q-row tile" role="button" tabindex="0" aria-label="{{ s.aria }}" sc-camel-on-click="{{ s.tap }}">
+<span class="q-tile cc" style="--cl:{{ s.cl }};--cd:{{ s.cd }};--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ s.d }}"></path></svg></span>
+<span class="grow t-body">{{ s.label }}</span>
+<span class="q-val num">{{ s.value }}</span>
+<svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg>
+</div>
+</sc-for>
+</div>
+
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.categories }}</h2></div>
+<div class="q-group">
+<sc-for list="{{ setCatRows }}" as="s">
+<div class="q-row tile" role="button" tabindex="0" aria-label="{{ s.aria }}" sc-camel-on-click="{{ s.tap }}">
+<span class="q-tile cc" style="--cl:{{ s.cl }};--cd:{{ s.cd }};--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ s.d }}"></path></svg></span>
+<span class="grow t-body">{{ s.label }}</span>
+<span class="q-val num">{{ s.value }}</span>
+<svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg>
+</div>
+</sc-for>
+</div>
+
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.appearance }}</h2></div>
+<div class="q-group">
+<div class="q-row col">
+<span class="t-body">{{ t.theme }}</span>
+<div class="q-seg" role="radiogroup" aria-label="{{ t.theme }}">
+<sc-for list="{{ themes }}" as="th"><button type="button" role="radio" aria-checked="{{ th.on }}" class="q-seg-i {{ th.cls }}" sc-camel-on-click="{{ th.pick }}">{{ th.name }}</button></sc-for>
+</div>
+</div>
+<div class="q-row col">
+<span class="t-body">{{ t.accent }}</span>
+<div class="q-swatches">
+<sc-for list="{{ swatches }}" as="sw"><button type="button" class="q-swatch {{ sw.cls }}" aria-label="{{ sw.aria }}" aria-pressed="{{ sw.on }}" sc-camel-on-click="{{ sw.pick }}" style="--c:{{ sw.c }};--f:{{ sw.f }}"><sc-if value="{{ sw.on }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:check:b%%"></path></svg></sc-if></button></sc-for>
+</div>
+</div>
+<div class="q-row col">
+<span class="t-body">{{ t.language }}</span>
+<div class="q-seg" role="radiogroup" aria-label="{{ t.language }}">
+<sc-for list="{{ langs }}" as="lg"><button type="button" role="radio" aria-checked="{{ lg.on }}" class="q-seg-i {{ lg.cls }}" sc-camel-on-click="{{ lg.pick }}">{{ lg.name }}</button></sc-for>
+</div>
+</div>
+</div>
+
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.data }}</h2></div>
+<div class="q-group">
+<div class="q-row tile" role="button" tabindex="0" sc-camel-on-click="{{ openBackup }}">
+<span class="q-tile cc" style="--cl:#8E8E93;--cd:#98989D;--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:download-simple:r%%"></path></svg></span>
+<span class="grow"><span class="t-body db">{{ t.backup }}</span><span class="t-sub muted db">{{ t.backupSub }}</span></span>
+<svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg>
+</div>
+</div>
+
+<sc-if value="{{ fbEnabled }}">
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.account }}</h2></div>
+<sc-if value="{{ fbSignedIn }}">
+<div class="q-group">
+<div class="q-row">
+<span class="grow"><span class="t-body ell db">{{ fbUserName }}</span><span class="t-sub muted db" role="status" aria-live="polite">{{ fbStatusLabel }}</span></span>
+<button type="button" class="q-link" sc-camel-on-click="{{ fbSignOut }}">{{ t.signOut }}</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ fbSignedOut }}">
+<button type="button" class="q-secondary" sc-camel-on-click="{{ fbSignIn }}">{{ t.signIn }}</button>
+<div class="t-foot muted q-note">{{ t.signInNote }}</div>
+</sc-if>
+</sc-if>
+
+<div class="t-foot muted q-note ta-c mt24">{{ versionLine }}</div>
+
+</div>
+</section>
+</sc-if>

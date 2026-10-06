@@ -1,0 +1,11 @@
+<sc-if value="{{ showWallet }}">
+<div class="q-wallet" role="group" aria-label="{{ t.quickAdd }}">
+<sc-for list="{{ wallet }}" as="w">
+<button type="button" class="q-wcard cc w{{ w.i }}" aria-label="{{ w.aria }}" sc-camel-on-click="{{ w.pick }}" style="--cl:{{ w.cl }};--cd:{{ w.cd }};--fl:{{ w.fl }};--fd:{{ w.fd }}">
+<span class="q-tile q-wt"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ w.d }}"></path></svg></span>
+<span class="q-wn ell">{{ w.name }}</span>
+<span class="q-ws num">{{ w.sub }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>

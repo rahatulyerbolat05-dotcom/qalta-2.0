@@ -1,0 +1,6 @@
+<sc-if value="{{ hasToast }}">
+<div class="q-toast" role="status" aria-live="polite">
+<span class="grow">{{ toastText }}</span>
+<sc-if value="{{ hasToastAction }}"><button type="button" sc-camel-on-click="{{ toastAction }}">{{ toastActionLabel }}</button></sc-if>
+</div>
+</sc-if>

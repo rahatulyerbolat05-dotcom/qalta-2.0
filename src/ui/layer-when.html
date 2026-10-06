@@ -1,0 +1,28 @@
+<sc-if value="{{ L.when }}">
+<div class="q-layer" style="z-index:{{ Z.when }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
+<div id="layer-when" class="q-sheet" role="dialog" aria-modal="true" aria-label="{{ wh.title }}" tabindex="-1">
+<div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
+<div class="q-grab"></div>
+<div class="q-nav">
+<span class="q-nbtn-sp"></span>
+<div class="t-headline">{{ wh.title }}</div>
+<button type="button" class="q-nbtn plain" sc-camel-on-click="{{ dismissTop }}">{{ t.done }}</button>
+</div>
+</div>
+<div class="q-sheet-body q-sheet-pad">
+<sc-if value="{{ wh.hasQuick }}">
+<div class="q-chips bleed">
+<sc-for list="{{ wh.quick }}" as="q"><button type="button" class="q-chip {{ q.cls }}" aria-pressed="{{ q.on }}" sc-camel-on-click="{{ q.pick }}">{{ q.name }}</button></sc-for>
+</div>
+</sc-if>
+<div class="q-group mt12">
+<label class="q-row"><span class="t-body">{{ t.date }}</span><span class="grow"></span><input type="date" class="q-input plain" value="{{ wh.date }}" max="{{ wh.max }}" sc-camel-on-change="{{ wh.setDate }}" aria-label="{{ t.date }}"></label>
+<sc-if value="{{ wh.hasTime }}"><label class="q-row"><span class="t-body">{{ t.time }}</span><span class="grow"></span><input type="time" class="q-input plain" value="{{ wh.time }}" sc-camel-on-change="{{ wh.setTime }}" aria-label="{{ t.time }}"></label></sc-if>
+</div>
+<sc-if value="{{ wh.hasClear }}"><button type="button" class="q-secondary mt12" sc-camel-on-click="{{ wh.clear }}">{{ t.noDue }}</button></sc-if>
+<sc-if value="{{ wh.hasMsg }}"><div class="t-sub tx-neg q-note" role="status">{{ wh.msg }}</div></sc-if>
+</div>
+</div>
+</div>
+</sc-if>

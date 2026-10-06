@@ -1,0 +1,80 @@
+<sc-if value="{{ L.entry }}">
+<div class="q-layer" style="z-index:{{ Z.entry }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
+<div id="layer-entry" class="q-sheet large" role="dialog" aria-modal="true" aria-label="{{ en.title }}" tabindex="-1">
+
+<div class="q-entry-head cc" style="--cl:{{ en.cl }};--cd:{{ en.cd }};--fl:{{ en.fl }};--fd:{{ en.fd }}">
+<div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
+<div class="q-grab"></div>
+<div class="q-nav">
+<button type="button" class="q-nbtn" aria-label="{{ t.cancel }}" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:x:b%%"></path></svg></button>
+<sc-if value="{{ en.hasSides }}">
+<div class="q-seg q-entry-seg" role="radiogroup" aria-label="{{ en.sidesAria }}">
+<sc-for list="{{ en.sides }}" as="sd"><button type="button" role="radio" aria-checked="{{ sd.on }}" class="q-seg-i {{ sd.cls }}" sc-camel-on-click="{{ sd.pick }}">{{ sd.name }}</button></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ en.noSides }}"><div class="t-headline">{{ en.title }}</div></sc-if>
+<span class="q-nbtn-sp"></span>
+</div>
+</div>
+<div class="q-entry-top">
+<sc-if value="{{ en.showCatBadge }}">
+<div class="q-entry-cat"><span class="q-tile"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ en.catD }}"></path></svg></span><span class="t-title3">{{ en.catName }}</span></div>
+</sc-if>
+<div class="q-amount num {{ en.amountCls }}" role="status" aria-live="polite" aria-atomic="true">{{ en.amountText }}<span class="q-caret" aria-hidden="true"></span><span class="q-cur">&nbsp;₸</span></div>
+</div>
+</div>
+
+<div class="q-entry-mid q-scroll-y">
+<div class="q-hint {{ en.hintCls }}" role="status" aria-live="polite">{{ en.hint }}</div>
+
+<sc-if value="{{ en.showCats }}">
+<div class="q-chips">
+<sc-for list="{{ en.chips }}" as="c"><button type="button" class="q-chip cc {{ c.cls }}" aria-pressed="{{ c.on }}" sc-camel-on-click="{{ c.pick }}" style="--cl:{{ c.cl }};--cd:{{ c.cd }};--fl:{{ c.fl }};--fd:{{ c.fd }}"><span class="q-tile"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ c.d }}"></path></svg></span>{{ c.name }}</button></sc-for>
+<button type="button" class="q-chip" sc-camel-on-click="{{ en.moreCats }}">{{ en.moreLabel }}</button>
+</div>
+</sc-if>
+
+<div class="q-group">
+<sc-if value="{{ en.showFill }}">
+<button type="button" class="q-row" sc-camel-on-click="{{ en.fill }}"><span class="t-body">{{ en.fillText }}</span><span class="grow"></span><svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></button>
+</sc-if>
+<sc-if value="{{ en.showWho }}">
+<label class="q-row"><span class="t-body">{{ t.who }}</span><input class="q-input plain grow" value="{{ en.who }}" sc-camel-on-change="{{ en.setWho }}" placeholder="{{ t.whoPh }}" aria-label="{{ t.who }}" maxlength="60" autocomplete="off" spellcheck="false"></label>
+</sc-if>
+<sc-if value="{{ en.showPay }}">
+<div class="q-row"><span class="t-body">{{ t.payment }}</span><div class="q-seg grow-seg" role="radiogroup" aria-label="{{ t.payment }}">
+<sc-for list="{{ en.pays }}" as="py"><button type="button" role="radio" aria-checked="{{ py.on }}" class="q-seg-i {{ py.cls }}" sc-camel-on-click="{{ py.pick }}">{{ py.name }}</button></sc-for>
+</div></div>
+</sc-if>
+<sc-if value="{{ en.showWhen }}">
+<button type="button" class="q-row" sc-camel-on-click="{{ en.openWhen }}"><span class="t-body">{{ t.date }}</span><span class="grow"></span><span class="q-val">{{ en.whenText }}</span><svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></button>
+</sc-if>
+<sc-if value="{{ en.showDue }}">
+<button type="button" class="q-row" sc-camel-on-click="{{ en.openDue }}"><span class="t-body">{{ t.due }}</span><span class="grow"></span><span class="q-val">{{ en.dueText }}</span><svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></button>
+</sc-if>
+<sc-if value="{{ en.showNote }}">
+<label class="q-row"><span class="t-body">{{ t.note }}</span><input class="q-input plain grow" value="{{ en.note }}" sc-camel-on-change="{{ en.setNote }}" placeholder="{{ t.notePh }}" aria-label="{{ t.note }}" maxlength="200" autocomplete="off" spellcheck="false"></label>
+</sc-if>
+</div>
+
+<sc-if value="{{ en.showDelete }}">
+<div class="q-group"><button type="button" class="q-row center q-danger-btn" sc-camel-on-click="{{ en.remove }}">{{ en.deleteLabel }}</button></div>
+</sc-if>
+</div>
+
+<div class="q-entry-bot">
+<div class="q-keypad">
+<sc-for list="{{ en.keys }}" as="k">
+<button type="button" class="q-key {{ k.cls }}" aria-label="{{ k.aria }}" sc-camel-on-click="{{ k.press }}" sc-camel-on-pointer-down="{{ k.down }}" sc-camel-on-pointer-up="{{ k.up }}" sc-camel-on-pointer-leave="{{ k.up }}">
+<sc-if value="{{ k.isIcon }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ k.d }}"></path></svg></sc-if>
+<sc-if value="{{ k.isText }}"><span>{{ k.label }}</span></sc-if>
+</button>
+</sc-for>
+</div>
+<div class="q-entry-save"><button type="button" class="q-primary {{ en.saveCls }}" aria-disabled="{{ en.saveOff }}" sc-camel-on-click="{{ en.save }}">{{ en.saveLabel }}</button></div>
+</div>
+
+</div>
+</div>
+</sc-if>

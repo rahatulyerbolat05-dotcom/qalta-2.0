@@ -1,0 +1,34 @@
+<sc-if value="{{ L.catList }}">
+<div class="q-layer" style="z-index:{{ Z.catList }}">
+<div id="layer-catList" class="q-sheet full" role="dialog" aria-modal="true" aria-label="{{ cl.title }}" tabindex="-1">
+<div class="q-nav bar">
+<button type="button" class="q-nbtn plain back" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-left:b%%"></path></svg><span>{{ t.settings }}</span></button>
+<div class="t-headline">{{ cl.title }}</div>
+<button type="button" class="q-nbtn plain" aria-pressed="{{ cl.reorder }}" sc-camel-on-click="{{ cl.toggleReorder }}">{{ cl.reorderLabel }}</button>
+</div>
+<div class="q-scroll-y grow">
+<div class="q-page">
+<div class="q-seg" role="radiogroup" aria-label="{{ t.categories }}">
+<sc-for list="{{ cl.kinds }}" as="k"><button type="button" role="radio" aria-checked="{{ k.on }}" class="q-seg-i {{ k.cls }}" sc-camel-on-click="{{ k.pick }}">{{ k.name }}</button></sc-for>
+</div>
+<div class="q-group mt12">
+<sc-for list="{{ cl.rows }}" as="r">
+<div class="q-row tile">
+<button type="button" class="q-rowmain" aria-label="{{ r.aria }}" sc-camel-on-click="{{ r.tap }}">
+<span class="q-tile cc" style="--cl:{{ r.cl }};--cd:{{ r.cd }};--fl:{{ r.fl }};--fd:{{ r.fd }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ r.d }}"></path></svg></span>
+<span class="grow"><span class="t-body ell db">{{ r.name }}</span><span class="t-sub muted db">{{ r.used }}</span></span>
+</button>
+<sc-if value="{{ cl.reorder }}">
+<button type="button" class="q-iconbtn" aria-label="{{ r.upAria }}" aria-disabled="{{ r.noUp }}" sc-camel-on-click="{{ r.up }}" style="opacity:{{ r.upOp }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true" style="transform:rotate(90deg)"><path d="%%icon:caret-left:b%%"></path></svg></button>
+<button type="button" class="q-iconbtn" aria-label="{{ r.downAria }}" aria-disabled="{{ r.noDown }}" sc-camel-on-click="{{ r.down }}" style="opacity:{{ r.downOp }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true" style="transform:rotate(-90deg)"><path d="%%icon:caret-left:b%%"></path></svg></button>
+</sc-if>
+<sc-if value="{{ cl.notReorder }}"><svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></sc-if>
+</div>
+</sc-for>
+</div>
+<button type="button" class="q-secondary mt14" sc-camel-on-click="{{ cl.create }}">{{ t.newCategory }}</button>
+</div>
+</div>
+</div>
+</div>
+</sc-if>

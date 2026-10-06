@@ -25,7 +25,8 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  var SETTINGS_KEYS = ["hex", "skin", "set", "lang", "eCats", "iCats", "catColors", "catSizes"];
+  var SETTINGS_KEYS = ["hex", "skin", "set", "lang", "eCats", "iCats", "catColors", "catSizes", "catIcons", "budget", "openCash", "openCard"];
+  var MAX_AMOUNT = 999999999;
   var KINDS = ["ops", "debts", "meta"];
   var BATCH = 400;
 
@@ -47,12 +48,15 @@
   function cleanOp(d) {
     if (!d || typeof d !== "object" || !fin(d.id) || !fin(d.sum)) return null;
     if (!/^\d{1,2}\.\d{1,2}$/.test(String(d.date || ""))) return null;
-    return { id: d.id, date: String(d.date), cat: str(d.cat, 60) || "Прочее", note: str(d.note, 200), sum: Math.round(d.sum), pay: d.pay === "cash" ? "cash" : "card" };
+    var o = { id: d.id, date: String(d.date), cat: str(d.cat, 60) || "Прочее", note: str(d.note, 200), sum: Math.round(d.sum), pay: d.pay === "cash" ? "cash" : "card" };
+    if (fin(d.ts) && d.ts > 0 && d.ts < 8.64e15) o.ts = Math.round(d.ts);   // v2: the moment of the operation
+    return o;
   }
   function cleanLog(list) {
     return (Array.isArray(list) ? list : []).slice(0, 500).filter(function (p) { return p && fin(p.sum); }).map(function (p) {
       var e = { sum: Math.round(p.sum), date: str(p.date, 10) };
       if (typeof p.id === "string" && p.id) e.id = p.id.slice(0, 40);
+      if (fin(p.ts) && p.ts > 0) e.ts = Math.round(p.ts);
       return e;
     });
   }
@@ -66,6 +70,8 @@
     };
     if (typeof d.closedAt === "string") o.closedAt = str(d.closedAt, 10);
     if (typeof d.reason === "string") o.reason = str(d.reason, 120);
+    if (typeof d.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.due)) o.due = d.due;   // v2: optional due date
+    if (fin(d.ts) && d.ts > 0) o.ts = Math.round(d.ts);
     return o;
   }
   function cleanSettings(d) {
@@ -85,6 +91,17 @@
         if (safeKey(k) && typeof v === "string" && v.length <= 64 && !/[;{}<>"']/.test(v)) o.catColors[k] = v;
       });
     }
+    if (d.catIcons && typeof d.catIcons === "object" && !Array.isArray(d.catIcons)) {
+      o.catIcons = {};
+      Object.keys(d.catIcons).slice(0, 300).forEach(function (k) {
+        var v = d.catIcons[k];
+        if (safeKey(k) && typeof v === "string" && /^[a-z0-9-]{1,40}$/.test(v)) o.catIcons[k] = v;
+      });
+    }
+    if (fin(d.budget) && d.budget > 0) o.budget = Math.min(MAX_AMOUNT, Math.round(d.budget));
+    ["openCash", "openCard"].forEach(function (k) {
+      if (fin(d[k])) o[k] = Math.max(-MAX_AMOUNT * 100, Math.min(MAX_AMOUNT * 100, Math.round(d[k])));
+    });
     if (d.catSizes && typeof d.catSizes === "object" && !Array.isArray(d.catSizes)) {
       o.catSizes = {};
       Object.keys(d.catSizes).slice(0, 300).forEach(function (k) {
@@ -126,6 +143,10 @@
   function mergeDebt(base, local, remote) {
     var out = {};
     ["who", "note", "mine"].forEach(function (k) { out[k] = local[k] !== base[k] ? local[k] : remote[k]; });
+    var due = local.due !== base.due ? local.due : remote.due;
+    if (due !== undefined) out.due = due;
+    var dts = local.ts !== base.ts ? local.ts : remote.ts;
+    if (dts !== undefined) out.ts = dts;
     out.id = local.id;
     out.sum = local.sum !== base.sum ? local.sum : remote.sum;
     var paid = (base.paid || 0) + ((local.paid || 0) - (base.paid || 0)) + ((remote.paid || 0) - (base.paid || 0));
@@ -149,7 +170,7 @@
     ["who", "note", "sum", "mine", "closed"].forEach(function (k) {
       if (cur[k] !== base[k]) { p[k] = cur[k]; changed = true; }
     });
-    ["closedAt", "reason"].forEach(function (k) {
+    ["closedAt", "reason", "due", "ts"].forEach(function (k) {
       if (cur[k] !== base[k]) { p[k] = cur[k] === undefined ? fv.delete() : cur[k]; changed = true; }
     });
     var dp = (cur.paid || 0) - (base.paid || 0);

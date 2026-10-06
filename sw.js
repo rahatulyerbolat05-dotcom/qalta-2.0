@@ -1,9 +1,8 @@
 // Қalta offline shell. Keeps the app launchable with no network; data itself is
 // stored by the app (localStorage + Firestore's offline cache), not here.
-const VERSION = "qalta-shell-v2";
+const VERSION = "qalta-shell-v3";
 const SHELL = ["./", "index.html", "manifest.json", "firebase-config.js", "sync-engine.js",
-  "icons/icon-192.png", "icons/icon-512.png", "icons/favicon.ico",
-  "fonts/manrope-latin.woff2", "fonts/manrope-latin-ext.woff2", "fonts/manrope-cyrillic.woff2", "fonts/manrope-cyrillic-ext.woff2"];
+  "icons/icon-192.png", "icons/icon-512.png", "icons/favicon.ico"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -1,0 +1,12 @@
+<sc-if value="{{ L.confirm }}">
+<div class="q-layer" style="z-index:{{ Z.confirm }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ cf.cancel }}"></div>
+<div id="layer-confirm" class="q-actions" role="alertdialog" aria-modal="true" aria-label="{{ cf.title }}" tabindex="-1">
+<div class="q-group">
+<div class="q-act-title t-foot muted ta-c">{{ cf.title }}</div>
+<button type="button" class="q-row center q-danger-btn semi" sc-camel-on-click="{{ cf.ok }}">{{ cf.okLabel }}</button>
+</div>
+<div class="q-group mt8"><button type="button" class="q-row center tx-tint semi" sc-camel-on-click="{{ cf.cancel }}">{{ cf.cancelLabel }}</button></div>
+</div>
+</div>
+</sc-if>

@@ -4,7 +4,7 @@ service cloud.firestore {
     // Data layout (see sync-engine.js):
     //   users/{uid}/ops/{id}        one document per operation
     //   users/{uid}/debts/{id}      one document per debt (open and closed)
-    //   users/{uid}/meta/settings   language, accent, skin, categories
+    //   users/{uid}/meta/settings   language, accent, categories (+colours, icons), budget, opening balances
     // Every document carries _u (update stamp) and _d (device id); a deleted
     // record is a tombstone {_del:true,_u,_d}. Firestore itself caps a document
     // at 1 MiB, so no size() check (request.resource has no size()).
@@ -21,11 +21,12 @@ service cloud.firestore {
 
       function validOp(d) {
         return tombstone(d) || (
-          d.keys().hasOnly(['id', 'date', 'cat', 'note', 'sum', 'pay', '_u', '_d'])
+          d.keys().hasOnly(['id', 'date', 'cat', 'note', 'sum', 'pay', 'ts', '_u', '_d'])
           && d.id is number && d.date is string && d.date.size() <= 5
           && d.cat is string && d.cat.size() <= 60
           && d.note is string && d.note.size() <= 200
           && d.sum is number && d.pay in ['cash', 'card']
+          && (!('ts' in d) || d.ts is number)
           && stamps(d));
       }
 
@@ -33,7 +34,7 @@ service cloud.firestore {
       // document is validated; the optional fields may be absent.
       function validDebt(d) {
         return tombstone(d) || (
-          d.keys().hasOnly(['id', 'who', 'note', 'sum', 'mine', 'paid', 'log', 'closed', 'closedAt', 'reason', '_u', '_d'])
+          d.keys().hasOnly(['id', 'who', 'note', 'sum', 'mine', 'paid', 'log', 'closed', 'closedAt', 'reason', 'due', 'ts', '_u', '_d'])
           && d.id is number && d.who is string && d.who.size() <= 60
           && d.note is string && d.note.size() <= 200
           && d.sum is number && d.sum >= 0 && d.mine is bool
@@ -42,11 +43,13 @@ service cloud.firestore {
           && (!('closed' in d) || d.closed is bool)
           && (!('closedAt' in d) || (d.closedAt is string && d.closedAt.size() <= 10))
           && (!('reason' in d) || (d.reason is string && d.reason.size() <= 120))
+          && (!('due' in d) || (d.due is string && d.due.size() <= 10))
+          && (!('ts' in d) || d.ts is number)
           && stamps(d));
       }
 
       function validSettings(d) {
-        return d.keys().hasOnly(['hex', 'skin', 'set', 'lang', 'eCats', 'iCats', 'catColors', 'catSizes', '_u', '_d'])
+        return d.keys().hasOnly(['hex', 'skin', 'set', 'lang', 'eCats', 'iCats', 'catColors', 'catSizes', 'catIcons', 'budget', 'openCash', 'openCard', '_u', '_d'])
           && (!('hex' in d) || (d.hex is string && d.hex.size() <= 9))
           && (!('skin' in d) || (d.skin is int && d.skin >= 0 && d.skin <= 2))
           && (!('set' in d) || (d.set is int && d.set >= 0 && d.set <= 4))
@@ -55,6 +58,10 @@ service cloud.firestore {
           && (!('iCats' in d) || (d.iCats is list && d.iCats.size() <= 200))
           && (!('catColors' in d) || d.catColors is map)
           && (!('catSizes' in d) || d.catSizes is map)
+          && (!('catIcons' in d) || d.catIcons is map)
+          && (!('budget' in d) || (d.budget is number && d.budget > 0))
+          && (!('openCash' in d) || d.openCash is number)
+          && (!('openCard' in d) || d.openCard is number)
           && stamps(d);
       }
 

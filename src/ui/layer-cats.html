@@ -1,0 +1,36 @@
+<sc-if value="{{ L.cats }}">
+<div class="q-layer" style="z-index:{{ Z.cats }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
+<div id="layer-cats" class="q-sheet large" role="dialog" aria-modal="true" aria-label="{{ t.chooseCategory }}" tabindex="-1">
+<div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
+<div class="q-grab"></div>
+<div class="q-nav">
+<button type="button" class="q-nbtn" aria-label="{{ t.cancel }}" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:x:b%%"></path></svg></button>
+<div class="t-headline">{{ t.chooseCategory }}</div>
+<span class="q-nbtn-sp"></span>
+</div>
+</div>
+<div class="q-sheet-body nobottom">
+<label class="q-search">
+<svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:magnifying-glass:r%%"></path></svg>
+<input type="search" value="{{ pk.q }}" sc-camel-on-change="{{ pk.setQ }}" placeholder="{{ t.findCategory }}" aria-label="{{ t.findCategory }}" spellcheck="false" autocomplete="off">
+</label>
+</div>
+<div class="q-scroll-y grow">
+<div class="q-grid">
+<sc-for list="{{ pk.list }}" as="c">
+<button type="button" class="q-cell cc {{ c.cls }}" aria-label="{{ c.name }}" aria-pressed="{{ c.on }}" sc-camel-on-click="{{ c.pick }}" style="--cl:{{ c.cl }};--cd:{{ c.cd }};--fl:{{ c.fl }};--fd:{{ c.fd }}">
+<span class="q-tile"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ c.d }}"></path></svg></span>
+<span class="t-foot ell">{{ c.name }}</span>
+</button>
+</sc-for>
+<button type="button" class="q-cell" sc-camel-on-click="{{ pk.create }}">
+<span class="q-tile neutral"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:plus:b%%"></path></svg></span>
+<span class="t-foot ell">{{ t.newCategory }}</span>
+</button>
+</div>
+<sc-if value="{{ pk.empty }}"><div class="q-empty t-callout">{{ t.nothingFound }}</div></sc-if>
+</div>
+</div>
+</div>
+</sc-if>

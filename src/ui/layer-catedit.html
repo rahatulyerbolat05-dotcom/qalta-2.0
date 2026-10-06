@@ -1,0 +1,34 @@
+<sc-if value="{{ L.catEdit }}">
+<div class="q-layer" style="z-index:{{ Z.catEdit }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
+<div id="layer-catEdit" class="q-sheet large" role="dialog" aria-modal="true" aria-label="{{ ce.title }}" tabindex="-1">
+<div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
+<div class="q-grab"></div>
+<div class="q-nav">
+<button type="button" class="q-nbtn" aria-label="{{ t.cancel }}" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:x:b%%"></path></svg></button>
+<div class="t-headline">{{ ce.title }}</div>
+<button type="button" class="q-nbtn plain semi" aria-disabled="{{ ce.saveOff }}" sc-camel-on-click="{{ ce.save }}" style="opacity:{{ ce.saveOp }}">{{ t.done }}</button>
+</div>
+</div>
+<div class="q-scroll-y grow">
+<div class="q-sheet-body q-sheet-pad">
+<div class="q-center-tile"><span class="q-tile lg cc" style="--cl:{{ ce.cl }};--cd:{{ ce.cd }};--fl:{{ ce.fl }};--fd:{{ ce.fd }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ ce.d }}"></path></svg></span></div>
+<input class="q-input mt12" value="{{ ce.name }}" sc-camel-on-change="{{ ce.setName }}" placeholder="{{ t.categoryName }}" aria-label="{{ t.categoryName }}" maxlength="60" autocomplete="off" spellcheck="false">
+<sc-if value="{{ ce.hasErr }}"><div class="t-sub tx-neg q-note" role="alert">{{ ce.err }}</div></sc-if>
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.color }}</h2></div>
+<div class="q-swatches">
+<sc-for list="{{ ce.colors }}" as="c"><button type="button" class="q-swatch {{ c.cls }}" aria-label="{{ c.aria }}" aria-pressed="{{ c.on }}" sc-camel-on-click="{{ c.pick }}" style="--c:{{ c.c }};--f:{{ c.f }}"><sc-if value="{{ c.on }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:check:b%%"></path></svg></sc-if></button></sc-for>
+</div>
+<div class="q-sec-hd"><h2 class="t-foot muted caps">{{ t.icon }}</h2></div>
+<div class="q-grid icons nopad">
+<sc-for list="{{ ce.icons }}" as="i"><button type="button" class="q-icell {{ i.cls }}" aria-label="{{ i.name }}" aria-pressed="{{ i.on }}" sc-camel-on-click="{{ i.pick }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ i.d }}"></path></svg></button></sc-for>
+</div>
+<sc-if value="{{ ce.showDelete }}">
+<div class="q-group mt24"><button type="button" class="q-row center q-danger-btn" sc-camel-on-click="{{ ce.remove }}">{{ t.deleteCategory }}</button></div>
+<div class="t-foot muted q-note">{{ ce.deleteNote }}</div>
+</sc-if>
+</div>
+</div>
+</div>
+</div>
+</sc-if>

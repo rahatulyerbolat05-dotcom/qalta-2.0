@@ -369,3 +369,69 @@ for (const seed of [1, 7, 42, 99, 2024, 31337]) {
     assert.equal(x.paid, x.log.reduce((a, e) => a + e.sum, 0), "paid equals the sum of the log");
   });
 }
+
+// ───────────── v2 fields: ts, due, budget, opening balances, category icons ─────────────
+
+test("v2: operation time, debt due date/timestamp, budget, balances and icons reach the other device", async () => {
+  const s = new Server();
+  const A = device(s, "A", { state: {
+    ops: [op(BASE + 1, { ts: BASE + 5 })], debts: [debt(BASE + 2, { due: "2026-10-20", ts: BASE + 9, log: [{ sum: 5, date: "01.10", ts: BASE + 3, id: "r1" }], paid: 5 })],
+    budget: 250000, openCash: 5000, openCard: 0, catIcons: { "Кафе": "coffee" }
+  } });
+  A.start(); await tick();
+  const B = device(s, "B"); B.start(); await tick();
+  assert.equal(B.state.ops[0].ts, BASE + 5);
+  assert.equal(B.state.debts[0].due, "2026-10-20");
+  assert.equal(B.state.debts[0].ts, BASE + 9);
+  assert.equal(B.state.debts[0].log[0].ts, BASE + 3);
+  assert.equal(B.state.budget, 250000);
+  assert.equal(B.state.openCash, 5000);
+  assert.equal(B.state.openCard, 0, "an explicit zero balance syncs too");
+  assert.deepEqual(B.state.catIcons, { "Кафе": "coffee" });
+  assert.equal(s.docs.get("users/u1/ops/" + (BASE + 1)).ts, BASE + 5);
+});
+
+test("v2: clearing the budget removes it on every device (settings are replaced, not merged)", async () => {
+  const s = new Server();
+  const A = device(s, "A", { state: { ops: [op(BASE + 1)], budget: 100000 } }); A.start(); await tick();
+  const B = device(s, "B"); B.start(); await tick();
+  assert.equal(B.state.budget, 100000);
+  A.edit(st => { st.budget = undefined; });
+  await tick();
+  assert.equal("budget" in s.docs.get("users/u1/meta/settings"), false);
+  assert.equal(B.state.budget, undefined);
+});
+
+test("v2: a debt's due date is edited field-wise, and removing it propagates", async () => {
+  const s = new Server();
+  const A = device(s, "A", { state: { debts: [debt(BASE + 7, { due: "2026-10-20" })] } }); A.start(); await tick();
+  const B = device(s, "B"); B.start(); await tick();
+  A.client.setOnline(false); B.client.setOnline(false);
+  A.edit(st => { st.debts[0] = Object.assign({}, st.debts[0], { due: "2026-11-01" }); });
+  B.edit(st => { st.debts[0] = Object.assign({}, st.debts[0], { who: "Айдос Н." }); });
+  B.client.setOnline(true); await tick();
+  A.client.setOnline(true); await tick();
+  for (let i = 0; i < 3; i++) { A.client.setOnline(false); A.client.setOnline(true); B.client.setOnline(false); B.client.setOnline(true); await tick(); }
+  for (const d of [A, B]) {
+    assert.equal(d.state.debts[0].due, "2026-11-01", d.name + ": due edit kept");
+    assert.equal(d.state.debts[0].who, "Айдос Н.", d.name + ": name edit kept");
+  }
+  A.edit(st => { const x = Object.assign({}, st.debts[0]); delete x.due; st.debts[0] = x; });
+  await tick();
+  assert.equal(B.state.debts[0].due, undefined, "no due date any more");
+  assert.equal("due" in s.docs.get("users/u1/debts/" + (BASE + 7)), false);
+});
+
+test("v2: malformed new fields from the cloud are dropped by clean()", () => {
+  assert.equal(Sync.clean("ops", { id: 1, date: "01.10", cat: "A", note: "", sum: -5, pay: "card", ts: "now" }).ts, undefined);
+  assert.equal(Sync.clean("ops", { id: 1, date: "01.10", cat: "A", note: "", sum: -5, pay: "card", ts: -4 }).ts, undefined);
+  assert.equal(Sync.clean("ops", { id: 1, date: "01.10", cat: "A", note: "", sum: -5, pay: "card", ts: BASE }).ts, BASE);
+  assert.equal(Sync.clean("debts", { id: 2, who: "A", sum: 5, mine: true, due: "tomorrow" }).due, undefined);
+  assert.equal(Sync.clean("debts", { id: 2, who: "A", sum: 5, mine: true, due: "2026-10-20" }).due, "2026-10-20");
+  const st = Sync.clean("meta", { budget: -5, openCash: "x", openCard: 12.6, catIcons: { a: "ok-icon", b: "<bad>", __proto__: "x" } });
+  assert.equal(st.budget, undefined);
+  assert.equal(st.openCash, undefined);
+  assert.equal(st.openCard, 13);
+  assert.deepEqual(st.catIcons, { a: "ok-icon" });
+  assert.ok(Sync.SETTINGS_KEYS.indexOf("budget") >= 0 && Sync.SETTINGS_KEYS.indexOf("catIcons") >= 0);
+});

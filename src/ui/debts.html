@@ -1,0 +1,56 @@
+<sc-if value="{{ isDebts }}">
+<section class="q-fade" aria-labelledby="h-debts">
+<header class="q-head">
+<div class="grow"><h1 id="h-debts" class="t-large">{{ t.debts }}</h1></div>
+<button type="button" class="q-iconbtn round" aria-label="{{ t.addDebt }}" sc-camel-on-click="{{ addDebt }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:plus:b%%"></path></svg></button>
+</header>
+<div class="q-page">
+
+<div class="q-seg" role="radiogroup" aria-label="{{ t.debtSide }}">
+<sc-for list="{{ sides }}" as="sd"><button type="button" role="radio" aria-checked="{{ sd.on }}" class="q-seg-i {{ sd.cls }}" sc-camel-on-click="{{ sd.pick }}">{{ sd.name }}</button></sc-for>
+</div>
+<div class="q-card q-sumline mt12">
+<span class="t-callout muted">{{ debtSummaryLabel }}</span>
+<span class="t-title3 num">{{ debtSummary }}</span>
+</div>
+
+<div class="q-group mt12">
+<sc-for list="{{ debtRows }}" as="d">
+<div class="q-row top" role="button" tabindex="0" aria-label="{{ d.aria }}" sc-camel-on-click="{{ d.tap }}">
+<span class="q-av cc" style="--cl:{{ d.cl }};--cd:{{ d.cd }};--fl:{{ d.fl }};--fd:{{ d.fd }}">{{ d.initial }}</span>
+<span class="grow">
+<span class="t-body semi ell db">{{ d.name }}</span>
+<span class="t-sub db {{ d.subCls }}">{{ d.sub }}</span>
+<sc-if value="{{ d.hasProg }}"><span class="q-prog cc db" style="--cl:{{ d.cl }};--cd:{{ d.cd }}"><i style="width:{{ d.progW }}"></i></span></sc-if>
+</span>
+<span class="t-body semi num">{{ d.left }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ noDebts }}">
+<div class="q-empty">
+<div class="t-callout">{{ noDebtsText }}</div>
+<button type="button" class="q-link" sc-camel-on-click="{{ addDebt }}">{{ t.addDebt }}</button>
+</div>
+</sc-if>
+</div>
+
+<sc-if value="{{ hasClosed }}">
+<div class="q-sec-hd">
+<button type="button" class="q-link nopad" aria-expanded="{{ showClosed }}" sc-camel-on-click="{{ toggleClosed }}">{{ closedTitle }}</button>
+</div>
+<sc-if value="{{ showClosed }}">
+<div class="q-group">
+<sc-for list="{{ closedRows }}" as="c">
+<div class="q-row">
+<span class="grow"><span class="t-body ell db strike muted">{{ c.name }}</span><span class="t-sub muted db">{{ c.sub }}</span></span>
+<span class="t-callout muted num">{{ c.sum }}</span>
+<button type="button" class="q-link" sc-camel-on-click="{{ c.restore }}">{{ t.restore }}</button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</sc-if>
+
+</div>
+</section>
+</sc-if>

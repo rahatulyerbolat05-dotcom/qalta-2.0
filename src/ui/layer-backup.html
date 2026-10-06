@@ -1,0 +1,28 @@
+<sc-if value="{{ L.backup }}">
+<div class="q-layer" style="z-index:{{ Z.backup }}">
+<div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
+<div id="layer-backup" class="q-sheet" role="dialog" aria-modal="true" aria-label="{{ t.backup }}" tabindex="-1">
+<div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
+<div class="q-grab"></div>
+<div class="q-nav">
+<button type="button" class="q-nbtn" aria-label="{{ t.cancel }}" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:x:b%%"></path></svg></button>
+<div class="t-headline">{{ t.backup }}</div>
+<span class="q-nbtn-sp"></span>
+</div>
+</div>
+<div class="q-sheet-body q-sheet-pad">
+<div class="q-group">
+<button type="button" class="q-row tile" sc-camel-on-click="{{ bk.exportFile }}">
+<span class="q-tile cc" style="--cl:#34C759;--cd:#30D158;--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:download-simple:r%%"></path></svg></span>
+<span class="grow"><span class="t-body db">{{ t.exportFile }}</span><span class="t-sub muted db">{{ t.exportNote }}</span></span>
+</button>
+<button type="button" class="q-row tile" sc-camel-on-click="{{ bk.importFile }}">
+<span class="q-tile cc" style="--cl:#007AFF;--cd:#0A84FF;--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:upload-simple:r%%"></path></svg></span>
+<span class="grow"><span class="t-body db">{{ t.importFile }}</span><span class="t-sub muted db">{{ t.importNote }}</span></span>
+</button>
+</div>
+<sc-if value="{{ bk.hasMsg }}"><div class="t-sub q-note {{ bk.msgCls }}" role="status" aria-live="polite">{{ bk.msg }}</div></sc-if>
+</div>
+</div>
+</div>
+</sc-if>

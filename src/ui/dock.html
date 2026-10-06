@@ -1,0 +1,13 @@
+<nav class="q-dock" aria-label="{{ t.navLabel }}">
+<div class="q-tabbar">
+<sc-for list="{{ tabs }}" as="tb">
+<button type="button" class="q-tab {{ tb.cls }}" aria-current="{{ tb.cur }}" sc-camel-on-click="{{ tb.go }}">
+<svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ tb.d }}"></path></svg>
+<span>{{ tb.label }}</span>
+</button>
+</sc-for>
+</div>
+<button type="button" class="q-fab" aria-label="{{ t.addOp }}" sc-camel-on-click="{{ openAdd }}">
+<svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:plus:b%%"></path></svg>
+</button>
+</nav>

@@ -1,0 +1,68 @@
+<sc-if value="{{ isHistory }}">
+<section class="q-fade" aria-labelledby="h-history">
+<header class="q-head">
+<div class="grow"><h1 id="h-history" class="t-large">{{ t.history }}</h1></div>
+</header>
+<div class="q-page">
+
+<label class="q-search">
+<svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:magnifying-glass:r%%"></path></svg>
+<input type="search" value="{{ hq }}" sc-camel-on-change="{{ setHq }}" placeholder="{{ t.searchPh }}" aria-label="{{ t.searchPh }}" spellcheck="false" autocomplete="off" autocapitalize="off">
+</label>
+
+<div class="q-seg mt12" role="radiogroup" aria-label="{{ t.period }}">
+<sc-for list="{{ periods }}" as="p"><button type="button" role="radio" aria-checked="{{ p.on }}" class="q-seg-i {{ p.cls }}" sc-camel-on-click="{{ p.pick }}">{{ p.name }}</button></sc-for>
+</div>
+
+<sc-if value="{{ hasStepper }}">
+<div class="q-stepper mt6">
+<button type="button" class="q-iconbtn" aria-label="{{ t.prev }}" sc-camel-on-click="{{ prevPeriod }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-left:b%%"></path></svg></button>
+<div class="t-headline">{{ periodTitle }}</div>
+<button type="button" class="q-iconbtn" aria-label="{{ t.next }}" aria-disabled="{{ noNext }}" sc-camel-on-click="{{ nextPeriod }}" style="opacity:{{ nextOpacity }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></button>
+</div>
+</sc-if>
+
+<div class="q-chips mt6 bleed">
+<sc-for list="{{ kinds }}" as="k"><button type="button" class="q-chip {{ k.cls }}" aria-pressed="{{ k.on }}" sc-camel-on-click="{{ k.pick }}">{{ k.name }}</button></sc-for>
+</div>
+
+<div class="q-card q-sum mt12">
+<div class="grow"><div class="t-foot muted">{{ t.expenses }}</div><div class="t-headline num">{{ sumSpent }}</div></div>
+<div class="grow"><div class="t-foot muted">{{ t.income }}</div><div class="t-headline num tx-pos">{{ sumIncome }}</div></div>
+<div class="grow"><div class="t-foot muted">{{ t.net }}</div><div class="t-headline num">{{ sumNet }}</div></div>
+</div>
+
+<sc-for list="{{ groups }}" as="g">
+<div class="q-day-hd"><h2 class="t-callout semi muted">{{ g.label }}</h2><span class="t-sub muted num">{{ g.sum }}</span></div>
+<div class="q-group">
+<sc-for list="{{ g.rows }}" as="r">
+<div class="q-swipe">
+<div class="q-swipe-track" style="transform:translateX({{ r.shift }})">
+<div class="q-swipe-main">
+<div class="q-row tile {{ r.flash }}" role="button" tabindex="0" aria-label="{{ r.aria }}" sc-camel-on-click="{{ r.tap }}" sc-camel-on-pointer-down="{{ r.start }}" sc-camel-on-pointer-move="{{ r.move }}" sc-camel-on-pointer-up="{{ r.end }}" sc-camel-on-pointer-cancel="{{ r.end }}" style="touch-action:pan-y">
+<span class="q-tile cc" style="--cl:{{ r.cl }};--cd:{{ r.cd }};--fl:{{ r.fl }};--fd:{{ r.fd }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ r.d }}"></path></svg></span>
+<span class="grow"><span class="t-body ell db">{{ r.name }}</span><span class="t-sub muted ell db">{{ r.sub }}</span></span>
+<span class="t-body semi num {{ r.amtCls }}">{{ r.amount }}</span>
+</div>
+</div>
+<div class="q-swipe-acts">
+<button type="button" class="q-act edit" sc-camel-on-click="{{ r.edit }}">{{ t.edit }}</button>
+<button type="button" class="q-act del" sc-camel-on-click="{{ r.remove }}">{{ t.delete }}</button>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</sc-for>
+
+<sc-if value="{{ canMore }}"><button type="button" class="q-secondary mt14" sc-camel-on-click="{{ showMore }}">{{ moreText }}</button></sc-if>
+<sc-if value="{{ noRows }}">
+<div class="q-card q-empty mt14">
+<div class="t-callout">{{ noRowsText }}</div>
+<sc-if value="{{ canResetSearch }}"><button type="button" class="q-link" sc-camel-on-click="{{ resetSearch }}">{{ t.resetSearch }}</button></sc-if>
+</div>
+</sc-if>
+
+</div>
+</section>
+</sc-if>
