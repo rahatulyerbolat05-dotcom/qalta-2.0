@@ -67,6 +67,18 @@ var ru = {
   signOut: "Выйти", signedInAs: "Вы вошли как {name}", statusSaving: "Сохраняется…", statusSynced: "Синхронизировано", statusLoading: "Загрузка…",
   statusOffline: "Нет сети: изменения сохранены на устройстве", statusError: "Не удалось синхронизировать", version: "Версия {v}",
   storageError: "Данные не сохраняются на этом устройстве. Сохраните копию: Настройки → Данные.",
+  // data safety, sign-in, import, updates
+  readFailKept: "Сохранённые данные не удалось прочитать, поэтому приложение открылось пустым. Копия повреждённых данных осталась в браузере.",
+  readFailLost: "Сохранённые данные не удалось прочитать, и копию сохранить не получилось. Первая же запись заменит их.",
+  dismiss: "Скрыть",
+  switchFailed: "Вход отменён: не удалось сохранить копию данных предыдущего аккаунта. Освободите место в браузере и повторите.",
+  signInFailed: "Не удалось войти. Проверьте соединение и повторите.",
+  tImportedN: "Копия восстановлена: операций {ops}, долгов {debts}",
+  tImportedSkip: "Копия восстановлена: операций {ops}, долгов {debts}; пропущено строк: {n}",
+  backupNoCopy: "Копия текущих данных не сохранилась, поэтому ничего не заменено. Освободите место в браузере и повторите.",
+  errBelowPaid: "Сумма не может быть меньше уже возвращённого: {n} ₸",
+  debtGone: "Этот долг уже удалён",
+  updateReady: "Доступна новая версия", updateAction: "Обновить",
   // categories
   usedTimes: "Использована {n} {w}", notUsed: "Не использовалась", reorder: "Порядок", reorderDone: "Готово", moveUp: "Выше: {name}", moveDown: "Ниже: {name}",
   editCategory: "Категория", categoryName: "Название", color: "Цвет", icon: "Иконка", deleteCategory: "Удалить категорию", deleteNote: "Операции этой категории перейдут в «{to}».",
@@ -130,6 +142,18 @@ var kz = {
   signOut: "Шығу", signedInAs: "Сіз {name} ретінде кірдіңіз", statusSaving: "Сақталуда…", statusSynced: "Синхрондалды", statusLoading: "Жүктелуде…",
   statusOffline: "Желі жоқ: өзгерістер құрылғыда сақталды", statusError: "Синхрондау мүмкін болмады", version: "Нұсқа {v}",
   storageError: "Деректер осы құрылғыда сақталмайды. Көшірмені сақтаңыз: Баптаулар → Деректер.",
+  // data safety, sign-in, import, updates
+  readFailKept: "Сақталған деректерді оқу мүмкін болмады, сондықтан қолданба бос болып ашылды. Бүлінген деректердің көшірмесі браузерде қалды.",
+  readFailLost: "Сақталған деректерді оқу мүмкін болмады, көшірмесін де сақтау мүмкін болмады. Алғашқы жазба оларды ауыстырады.",
+  dismiss: "Жасыру",
+  switchFailed: "Кіру тоқтатылды: алдыңғы аккаунт деректерінің көшірмесін сақтау мүмкін болмады. Браузерде орын босатып, қайталаңыз.",
+  signInFailed: "Кіру мүмкін болмады. Байланысты тексеріп, қайталаңыз.",
+  tImportedN: "Көшірме қалпына келтірілді: операциялар {ops}, қарыздар {debts}",
+  tImportedSkip: "Көшірме қалпына келтірілді: операциялар {ops}, қарыздар {debts}; өткізілген жолдар: {n}",
+  backupNoCopy: "Ағымдағы деректердің көшірмесі сақталмады, сондықтан ештеңе ауыстырылмады. Браузерде орын босатып, қайталаңыз.",
+  errBelowPaid: "Сома қайтарылған сомадан аз болмауы керек: {n} ₸",
+  debtGone: "Бұл қарыз жойылған",
+  updateReady: "Жаңа нұсқа қолжетімді", updateAction: "Жаңарту",
   usedTimes: "{n} {w} қолданылды", notUsed: "Қолданылмаған", reorder: "Реті", reorderDone: "Дайын", moveUp: "Жоғары: {name}", moveDown: "Төмен: {name}",
   editCategory: "Санат", categoryName: "Атауы", color: "Түсі", icon: "Белгіше", deleteCategory: "Санатты жою", deleteNote: "Бұл санаттың операциялары «{to}» санатына өтеді.",
   errNameEmpty: "Атауын енгізіңіз", errNameExists: "Мұндай санат бар", colorAria: "Түс: {name}",
@@ -191,6 +215,18 @@ var en = {
   signOut: "Sign out", signedInAs: "Signed in as {name}", statusSaving: "Saving…", statusSynced: "Synced", statusLoading: "Loading…",
   statusOffline: "Offline: changes are saved on this device", statusError: "Could not sync", version: "Version {v}",
   storageError: "Data is not being saved on this device. Save a backup: Settings → Data.",
+  // data safety, sign-in, import, updates
+  readFailKept: "Your saved data could not be read, so the app opened empty. A copy of the unreadable data is kept in the browser.",
+  readFailLost: "Your saved data could not be read, and a copy could not be kept. The first change you make will replace it.",
+  dismiss: "Dismiss",
+  switchFailed: "Sign-in cancelled: the previous account's data could not be backed up. Free up space in the browser and try again.",
+  signInFailed: "Could not sign in. Check your connection and try again.",
+  tImportedN: "Backup restored: {ops} operations, {debts} debts",
+  tImportedSkip: "Backup restored: {ops} operations, {debts} debts; {n} rows skipped",
+  backupNoCopy: "A copy of the current data could not be saved, so nothing was replaced. Free up space in the browser and try again.",
+  errBelowPaid: "The amount cannot be less than what was already repaid: {n} ₸",
+  debtGone: "This debt has already been deleted",
+  updateReady: "A new version is available", updateAction: "Reload",
   usedTimes: "Used {n} {w}", notUsed: "Not used yet", reorder: "Reorder", reorderDone: "Done", moveUp: "Move up: {name}", moveDown: "Move down: {name}",
   editCategory: "Category", categoryName: "Name", color: "Colour", icon: "Icon", deleteCategory: "Delete category", deleteNote: "Transactions in this category will move to “{to}”.",
   errNameEmpty: "Enter a name", errNameExists: "This category already exists", colorAria: "Colour: {name}",
@@ -235,4 +271,11 @@ var CAT_TR = {
   "Прочий доход": { kz: "Басқа кіріс", en: "Other income" }
 };
 
-module.exports = { ru: ru, kz: kz, en: en, forms: forms, CAT_TR: CAT_TR };
+// Colour names for the palette (swatch labels, read by screen readers)
+var accents = {
+  ru: { red: "Красный", orange: "Оранжевый", yellow: "Жёлтый", green: "Зелёный", mint: "Мятный", teal: "Бирюзовый", cyan: "Голубой", blue: "Синий", indigo: "Индиго", purple: "Фиолетовый", pink: "Розовый", brown: "Коричневый", gray: "Серый" },
+  kz: { red: "Қызыл", orange: "Қызғылт сары", yellow: "Сары", green: "Жасыл", mint: "Жалбыз", teal: "Көгілдір-жасыл", cyan: "Аспан көк", blue: "Көк", indigo: "Индиго", purple: "Күлгін", pink: "Қызғылт", brown: "Қоңыр", gray: "Сұр" },
+  en: { red: "Red", orange: "Orange", yellow: "Yellow", green: "Green", mint: "Mint", teal: "Teal", cyan: "Cyan", blue: "Blue", indigo: "Indigo", purple: "Purple", pink: "Pink", brown: "Brown", gray: "Gray" }
+};
+
+module.exports = { ru: ru, kz: kz, en: en, forms: forms, CAT_TR: CAT_TR, accents: accents };

@@ -8,6 +8,7 @@ var MINUS = "−";
 var DAY = 86400000;
 var MAX_AMOUNT = 999999999;
 var MAX_AMOUNT_DIGITS = 9;
+var MAX_OPS = 50000, MAX_DEBTS = 10000;   // far above what localStorage (about 5 MB) can hold
 
 // ───────────────────────────── numbers ─────────────────────────────
 
@@ -127,8 +128,8 @@ function tsFromDdmm(s, nowTs) {
     return d.getMonth() === mon - 1 && d.getDate() === day ? d.getTime() : null;
   }
   var t = at(now.getFullYear());
-  if (t != null && t > nowTs + DAY) t = at(now.getFullYear() - 1);
-  else if (t == null) t = at(now.getFullYear() - 1);
+  if (t != null && t > nowTs + DAY) t = null;                       // more than a day ahead: it was last year's
+  for (var back = 1; t == null && back <= 4; back++) t = at(now.getFullYear() - back);   // 29.02 needs a leap year
   return t;
 }
 
@@ -212,6 +213,30 @@ function dayLabel(ts, nowTs, lang, words) {
 // ───────────────────────────── operations ─────────────────────────────
 
 // Safe integer: ms since epoch * 1000 + 0..999, so two devices rarely collide.
+// Undo helper: put back only the records with these ids as they were in `before`; every other record in
+// `current` is left alone, so changes that arrived meanwhile (another device, a later edit) survive.
+// A record that still exists is restored in place; one that is gone returns to its old index; one that
+// did not exist before is removed.
+function restoreById(current, before, ids) {
+  var want = {}, was = {}, keep = [];
+  ids.forEach(function (id) { want[id] = 1; });
+  before.forEach(function (x, idx) { if (want[x.id]) was[x.id] = idx; });
+  current.forEach(function (x) {
+    if (!want[x.id]) { keep.push(x); return; }
+    if (was[x.id] !== undefined && want[x.id] === 1) { keep.push(before[was[x.id]]); want[x.id] = 2; }   // back in place
+  });
+  Object.keys(was).filter(function (k) { return want[k] !== 2; })
+    .sort(function (a, b) { return was[a] - was[b]; })
+    .forEach(function (k) { keep.splice(Math.min(was[k], keep.length), 0, before[was[k]]); });
+  return keep;
+}
+
+// Identity of one local copy of the data (see sync-engine.js: the sync shadow is bound to it).
+function newGen(nowTs, rnd) {
+  var r = typeof rnd === "number" ? rnd : Math.random();
+  return "g" + Math.floor(nowTs).toString(36) + Math.floor(r * 1e12).toString(36).padStart(8, "0");
+}
+
 function newId(nowTs, rnd) {
   var r = typeof rnd === "number" ? rnd : Math.random();
   return Math.floor(nowTs) * 1000 + Math.min(999, Math.floor(r * 1000));
@@ -251,7 +276,7 @@ function totals(ops) {
 
 // Expense totals per category, largest first.
 function byCategory(ops) {
-  var m = {};
+  var m = Object.create(null);      // keyed by category names: "constructor" must be an ordinary key
   ops.forEach(function (o) { if (o.sum < 0) m[o.cat] = (m[o.cat] || 0) + -o.sum; });
   return Object.keys(m).map(function (k) { return { cat: k, sum: m[k] }; })
     .sort(function (a, b) { return b.sum - a.sum || (a.cat < b.cat ? -1 : 1); });
@@ -275,7 +300,7 @@ function groupByDay(ops, nowTs, lang, words) {
 // Categories ordered by recency-weighted use (each use counts 0.5^(age/halfLife)); ties keep
 // the original order. Used for the quick cards and the category chips.
 function rankCategories(cats, ops, nowTs, halfLifeDays) {
-  var half = halfLifeDays || 14, score = {};
+  var half = halfLifeDays || 14, score = Object.create(null);
   ops.forEach(function (o) {
     var age = Math.max(0, dayDiff(nowTs, tsOfOp(o, nowTs)));
     score[o.cat] = (score[o.cat] || 0) + Math.pow(0.5, age / half);
@@ -304,21 +329,25 @@ function sumByPay(ops, pay) {
   return s;
 }
 
-// Balance = opening balance (typed by the person) + operations of that payment method.
-// An account whose opening balance was never set is "unknown": we do not invent a number.
-function balances(openCash, openCard, ops) {
-  var hasCash = typeof openCash === "number", hasCard = typeof openCard === "number";
-  var cash = (hasCash ? openCash : 0) + sumByPay(ops, "cash");
-  var card = (hasCard ? openCard : 0) + sumByPay(ops, "card");
+// Operations of one payment method made at or after `at` (0 = all of them).
+function sumSince(ops, pay, at, nowTs) {
+  var s = 0;
+  ops.forEach(function (o) { if (o.pay === pay && (!at || tsOfOp(o, nowTs) >= at)) s += o.sum; });
+  return s;
+}
+
+// Balance = the amount the person typed + the operations of that payment method made since they
+// typed it in (st.openCash / st.openCashAt, same for the card). What they stated stays true: editing or
+// deleting an older operation, or logging a forgotten one with an earlier date, does not move it.
+// An account whose balance was never typed is "unknown": we do not invent a number.
+function balances(st, ops, nowTs) {
+  var hasCash = typeof st.openCash === "number", hasCard = typeof st.openCard === "number";
+  var cash = (hasCash ? st.openCash : 0) + sumSince(ops, "cash", hasCash ? st.openCashAt : 0, nowTs);
+  var card = (hasCard ? st.openCard : 0) + sumSince(ops, "card", hasCard ? st.openCardAt : 0, nowTs);
   return {
     cash: cash, card: card, hasCash: hasCash, hasCard: hasCard,
     total: (hasCash ? cash : 0) + (hasCard ? card : 0), known: hasCash || hasCard
   };
-}
-
-// "I actually have X now": the opening balance that makes the computed balance equal X.
-function openingFor(actual, ops, pay) {
-  return Math.round(actual) - sumByPay(ops, pay);
 }
 
 // ───────────────────────────── debts ─────────────────────────────
@@ -453,13 +482,14 @@ function paletteById(id) {
 
 // Look of a category: custom colour/icon from settings, else the built-in one, else a stable
 // colour derived from the name. colors: { name: "#hex" }, icons: { name: "icon-key" }.
+function own(map, key) { return map && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined; }
 function catLook(name, colors, icons) {
-  var def = DEFAULT_LOOK[name];
+  var def = own(DEFAULT_LOOK, name);
   var pal = def ? paletteById(def[0]) : PALETTE[nameHash(name) % (PALETTE.length - 1)];
-  var custom = colors && colors[name];
+  var custom = own(colors, name);
   var hexL = isHex(custom) ? rgbToHex(hexToRgb(custom)) : pal.l;
   var hexD = isHex(custom) ? hexL : pal.d;
-  var icon = (icons && icons[name]) || (def ? def[1] : "tag");
+  var icon = own(icons, name) || (def ? def[1] : "tag");
   return { l: hexL, d: hexD, icon: icon, id: pal.id };
 }
 
@@ -509,13 +539,14 @@ function layerZ(stack, kind) {
 // Firestore). Whitelists keys, coerces types, drops junk; returns null when the shape is unusable.
 function sanitizeState(d, nowTs) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return null;
-  if (!Array.isArray(d.ops) || d.ops.length > 20000 || !Array.isArray(d.debts) || d.debts.length > 5000) return null;
+  if (!Array.isArray(d.ops) || !Array.isArray(d.debts)) return null;
   var str = function (v, n) { return typeof v === "string" ? v.slice(0, n) : ""; };
   var fin = function (v) { return typeof v === "number" && isFinite(v); };
   var safeKey = function (k) { return k !== "__proto__" && k !== "constructor" && k !== "prototype"; };
   var money = function (v) { return fin(v) ? Math.max(-MAX_AMOUNT * 100, Math.min(MAX_AMOUNT * 100, Math.round(v))) : null; };
 
-  var ops = d.ops.filter(function (o) { return o && typeof o === "object" && fin(o.sum); }).map(function (o, i) {
+  // Beyond the caps the oldest entries are cut, instead of refusing the whole file (which would look like "no data").
+  var ops = d.ops.slice(0, MAX_OPS).filter(function (o) { return o && typeof o === "object" && fin(o.sum) && Math.abs(o.sum) <= MAX_AMOUNT; }).map(function (o, i) {
     var legacyOk = tsFromDdmm(o.date, nowTs) != null;
     var ts = fin(o.ts) && o.ts > 0 && o.ts < 8.64e15 ? Math.round(o.ts) : null;
     var out = {
@@ -536,7 +567,7 @@ function sanitizeState(d, nowTs) {
       id: fin(x.id) ? x.id : newId(nowTs, 0), who: str(x.who, 60) || "—", note: str(x.note, 200),
       sum: sum, mine: !!x.mine, paid: fin(x.paid) ? Math.min(sum, Math.max(0, Math.round(x.paid))) : 0
     };
-    out.log = (Array.isArray(x.log) ? x.log : []).filter(function (p) { return p && fin(p.sum); }).slice(0, 500).map(function (p) {
+    out.log = (Array.isArray(x.log) ? x.log : []).filter(function (p) { return p && fin(p.sum) && Math.abs(p.sum) <= MAX_AMOUNT; }).slice(0, 500).map(function (p) {
       var e = { sum: Math.round(p.sum), date: str(p.date, 10) };
       if (typeof p.id === "string" && p.id) e.id = p.id.slice(0, 40);
       if (fin(p.ts) && p.ts > 0) e.ts = Math.round(p.ts);
@@ -548,8 +579,9 @@ function sanitizeState(d, nowTs) {
     if (fin(x.ts) && x.ts > 0) out.ts = Math.round(x.ts);
     return out;
   }
-  var debts = d.debts.filter(function (x) { return x && typeof x === "object" && fin(x.sum); }).map(debt);
-  var closed = (Array.isArray(d.closed) ? d.closed : []).slice(0, 5000).filter(function (x) { return x && typeof x === "object" && fin(x.sum); }).map(debt);
+  var okDebt = function (x) { return x && typeof x === "object" && fin(x.sum) && x.sum <= MAX_AMOUNT; };
+  var debts = d.debts.slice(0, MAX_DEBTS).filter(okDebt).map(debt);
+  var closed = (Array.isArray(d.closed) ? d.closed : []).slice(0, MAX_DEBTS).filter(okDebt).map(debt);
 
   var cats = function (v) {
     return Array.isArray(v) ? v.filter(function (x) { return typeof x === "string" && x.trim() && x.length <= 60; }).slice(0, 200) : undefined;
@@ -583,6 +615,10 @@ function sanitizeState(d, nowTs) {
   var oc = money(d.openCash), od = money(d.openCard);
   if (oc !== null) out.openCash = oc;
   if (od !== null) out.openCard = od;
+  var when = function (v) { return fin(v) && v > 0 && v < 8.64e15 ? Math.round(v) : null; };
+  if (oc !== null && when(d.openCashAt) !== null) out.openCashAt = when(d.openCashAt);
+  if (od !== null && when(d.openCardAt) !== null) out.openCardAt = when(d.openCardAt);
+  if (typeof d.gen === "string" && /^[A-Za-z0-9_-]{8,40}$/.test(d.gen)) out.gen = d.gen;
   return out;
 }
 
@@ -592,7 +628,7 @@ function buildBackup(s) {
   return {
     v: 2, ops: s.ops, debts: s.debts, closed: s.closed || [], eCats: s.eCats, iCats: s.iCats,
     catColors: s.catColors || {}, catIcons: s.catIcons || {}, hex: s.hex, lang: s.lang,
-    budget: s.budget, openCash: s.openCash, openCard: s.openCard
+    budget: s.budget, openCash: s.openCash, openCard: s.openCard, openCashAt: s.openCashAt, openCardAt: s.openCardAt
   };
 }
 
@@ -603,9 +639,9 @@ module.exports = {
   combineDateTime: combineDateTime, dayDiff: dayDiff, ddmm: ddmm, tsFromDdmm: tsFromDdmm, tsOfOp: tsOfOp, clampToNow: clampToNow,
   daysInMonth: daysInMonth, daysLeftInMonth: daysLeftInMonth, weekStart: weekStart, periodRange: periodRange, localeOf: localeOf,
   fmtDate: fmtDate, periodLabel: periodLabel, dayLabel: dayLabel, capitalize: capitalize,
-  newId: newId, sortOps: sortOps, inRange: inRange, matchesQuery: matchesQuery, filterOps: filterOps, totals: totals,
+  newId: newId, newGen: newGen, restoreById: restoreById, own: own, sortOps: sortOps, inRange: inRange, matchesQuery: matchesQuery, filterOps: filterOps, totals: totals,
   byCategory: byCategory, groupByDay: groupByDay, rankCategories: rankCategories,
-  budgetStatus: budgetStatus, sumByPay: sumByPay, balances: balances, openingFor: openingFor,
+  budgetStatus: budgetStatus, sumByPay: sumByPay, balances: balances, sumSince: sumSince,
   debtLeft: debtLeft, debtDue: debtDue, applyRepayment: applyRepayment, debtSideTotals: debtSideTotals,
   hexToRgb: hexToRgb, rgbToHex: rgbToHex, isHex: isHex, relLuminance: relLuminance, contrast: contrast, mix: mix,
   pickText: pickText, ensureContrast: ensureContrast, nameHash: nameHash, paletteById: paletteById, catLook: catLook,

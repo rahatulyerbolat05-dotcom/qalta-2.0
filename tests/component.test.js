@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { load, makeStorage, type } = require("./helpers/harness.js");
 
 const at = (y, mo, d, h = 12, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
+const nb = x => x.replace(/ /g, "\u00a0");   // the app groups digits and joins the currency sign with no-break spaces
 
 function app(initial, opts) {
   const h = load(Object.assign({ storage: makeStorage(initial) }, opts || {}));
@@ -219,26 +220,42 @@ test("budget: pace per day, over-budget state, and clearing it", () => {
   assert.equal(vals().noBudget, true);
 });
 
-test("account balances come from what the person types: setting 'I have X now' makes the total equal X", () => {
+test("account balances come from what the person types: 'I have X now' stays X, only later operations move it", () => {
   const { c, vals, QL } = app();
-  const now = Date.now();
+  const now = Date.now() - 5000;                         // operations made before the balances are typed in
   c.setState({ ops: [
     { id: 1, date: QL.ddmm(now), ts: now, cat: "Кафе", note: "", sum: -3000, pay: "cash" },
     { id: 2, date: QL.ddmm(now), ts: now, cat: "Зарплата", note: "", sum: 100000, pay: "card" }
   ] });
   c.openEntry({ mode: "opening", account: "cash" });
-  type(c, "2 0 000".replace(" 000", " 0 0 0"));         // 20000
+  type(c, "2 0 0 0 0");                                  // 20000
   vals().en.save();
   c.openEntry({ mode: "opening", account: "card" });
   type(c, "1 5 0 0 0 0");                                // 150000
   vals().en.save();
+  assert.equal(typeof c.state.openCashAt, "number", "the moment the balance was typed is stored with it");
+  assert.equal(c.state.openCash, 20000);
   const v = vals();
-  assert.equal(v.accounts[0].value, "20 000 ₸");
-  assert.equal(v.accounts[1].value, "150 000 ₸");
-  assert.equal(v.accTotal, "170 000 ₸");
-  // the balance keeps following operations
-  c.setState({ ops: [{ id: 3, date: QL.ddmm(now), ts: now, cat: "Кафе", note: "", sum: -1000, pay: "cash" }].concat(c.state.ops) });
-  assert.equal(vals().accounts[0].value, "19 000 ₸");
+  assert.equal(v.accounts[0].value, nb("20 000 ₸"));
+  assert.equal(v.accounts[1].value, nb("150 000 ₸"));
+  assert.equal(v.accTotal, nb("170 000 ₸"));
+  // editing or deleting an older operation does not move a balance the person stated
+  c.setState({ ops: c.state.ops.map(o => (o.id === 1 ? Object.assign({}, o, { sum: -9999 }) : o)) });
+  assert.equal(vals().accounts[0].value, nb("20 000 ₸"));
+  c.setState({ ops: c.state.ops.filter(o => o.id !== 2) });
+  assert.equal(vals().accounts[1].value, nb("150 000 ₸"));
+  // an operation made after that does move it
+  const later = Date.now();
+  c.setState({ ops: [{ id: 3, date: QL.ddmm(later), ts: later, cat: "Кафе", note: "", sum: -1000, pay: "cash" }].concat(c.state.ops) });
+  assert.equal(vals().accounts[0].value, nb("19 000 ₸"));
+  // undo puts back both the amount and the moment
+  c.openEntry({ mode: "opening", account: "cash" });
+  c.pressKey("clear");                                   // the sheet starts from the current balance
+  type(c, "5 0 0 0");
+  vals().en.save();
+  assert.equal(c.state.openCash, 5000);
+  c.runUndo();
+  assert.equal(c.state.openCash, 20000);
   // an explicit zero is a real balance
   c.openEntry({ mode: "opening", account: "cash" });
   c.pressKey("clear"); c.pressKey("0");
@@ -437,10 +454,12 @@ test("persistence: only data is stored, UI prefs separately; reload restores; co
   const orig = counting.setItem;
   counting.setItem = (k, v) => { if (k === "qalta-proto-v1") writes++; return orig(k, v); };
   const h4 = app(null, { storage: counting });
+  const atStart = writes;                                // a new install writes once: it gets an identity
+  assert.equal(atStart, 1);
   h4.c.setState({ tab: "history" });
   h4.c.componentDidUpdate();
   await new Promise(r => setTimeout(r, 300));
-  assert.equal(writes, 0);
+  assert.equal(writes, atStart);
 });
 
 test("migration: an untouched demo from earlier versions is dropped, anything the person changed is kept", () => {
@@ -468,7 +487,7 @@ test("sync glue: pristine state is a seed; any real data is not", () => {
   assert.equal(c.isSeed(), false);
 });
 
-test("backup: export shape, import replaces everything and can be undone", () => {
+test("backup: export shape, import replaces everything and can be undone", async () => {
   const { c, QL } = app();
   c.setState({ budget: 5000, ops: [{ id: 1, date: "01.10", cat: "Кафе", note: "", sum: -5, pay: "card" }] });
   const file = QL.buildBackup(c.state);
@@ -476,10 +495,8 @@ test("backup: export shape, import replaces everything and can be undone", () =>
   assert.equal(file.budget, 5000);
   const before = c.pickData();
   const text = JSON.stringify({ ops: [{ id: 7, date: "02.10", cat: "Дом", note: "", sum: -9, pay: "cash" }], debts: [], lang: "en" });
-  const reader = { readAsText() { this.result = text; this.onload(); } };
-  global.FileReader = function () { return reader; };
-  c.onImportFile({ target: { files: [{ size: text.length }], value: "x" } });
-  delete global.FileReader;
+  c.onImportFile({ target: { files: [{ size: text.length, text }], value: "x" } });
+  await tick();
   assert.equal(c.state.ops.length, 1);
   assert.equal(c.state.ops[0].id, 7);
   assert.equal(c.state.budget, undefined, "a backup without a budget clears it");

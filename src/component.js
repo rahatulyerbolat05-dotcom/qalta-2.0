@@ -5,24 +5,32 @@
 
 const STORE_KEY = "qalta-proto-v1";
 const UI_KEY = "qalta-ui-v1";
-const DATA_KEYS = ["ops", "debts", "closed", "eCats", "iCats", "catColors", "catIcons", "hex", "lang", "budget", "openCash", "openCard", "skin", "set", "catSizes"];
+const DATA_KEYS = ["ops", "debts", "closed", "eCats", "iCats", "catColors", "catIcons", "hex", "lang", "budget", "openCash", "openCard", "openCashAt", "openCardAt", "skin", "set", "catSizes", "gen"];
 const UI_KEYS = ["theme", "lastPay", "tips"];
 const LAYER_KINDS = ["entry", "cats", "when", "debtView", "catList", "catEdit", "backup", "confirm"];
 const NB = " ";
 const CIRC = 2 * Math.PI * 52;
 const PAGE = 150;
-const TOAST_MS = 6500;
+const TOAST_MS = 10000;
 const TAB_DEFS = [["home", "house", "tabOverview"], ["history", "clock-counter-clockwise", "tabHistory"], ["debts", "handshake", "tabDebts"], ["settings", "gear-six", "tabSettings"]];
 const ACCENTS = ["blue", "green", "orange", "pink", "purple", "red", "teal", "indigo"];
 const PICK_ICONS = ["shopping-cart", "shopping-bag", "basket", "storefront", "bus", "taxi", "car", "train", "bicycle", "airplane-tilt", "gas-pump", "coffee", "fork-knife", "bowl-food", "hamburger", "pizza", "ice-cream", "beer-stein", "wine", "house-line", "lightbulb", "wifi-high", "device-mobile", "desktop", "pill", "stethoscope", "heartbeat", "tooth", "first-aid-kit", "t-shirt", "sneaker", "baby", "backpack", "graduation-cap", "book-open", "barbell", "scissors", "paint-brush", "flower", "plant", "tree", "gift", "film-slate", "game-controller", "music-notes", "headphones", "camera", "tent", "umbrella", "paw-print", "dog", "cat", "wrench", "repeat", "receipt", "hand-heart", "star", "heart", "sparkle", "briefcase", "laptop", "key", "percent", "arrow-u-up-left", "money-wavy", "squares-four", "tag"];
+
+// What a device holds when it has no data of its own (also what a new account starts from): everything that
+// could carry another account's private information is emptied. The device's look stays (LOOK_DEFAULTS).
+const blankData = () => ({
+  ops: [], debts: [], closed: [], eCats: undefined, iCats: undefined, catColors: {}, catIcons: {}, catSizes: {},
+  budget: undefined, openCash: undefined, openCard: undefined, openCashAt: undefined, openCardAt: undefined
+});
+const LOOK_DEFAULTS = { hex: "#007AFF", lang: "ru", skin: 1, set: 1 };
 
 class Component extends DCLogic {
   state = {
     // data (synced across devices)
     ops: [], debts: [], closed: [], eCats: undefined, iCats: undefined,
     catColors: {}, catIcons: {}, hex: "#007AFF", lang: "ru",
-    budget: undefined, openCash: undefined, openCard: undefined,
-    skin: 1, set: 1, catSizes: {}, lastSync: null,
+    budget: undefined, openCash: undefined, openCard: undefined, openCashAt: undefined, openCardAt: undefined,
+    skin: 1, set: 1, catSizes: {}, lastSync: null, gen: undefined,
     // device-local preferences
     theme: "auto", lastPay: "card", tips: {},
     // interface
@@ -30,7 +38,7 @@ class Component extends DCLogic {
     pkQ: "", clKind: "expense", clReorder: false, ce: null, cf: null, viewDebtId: null,
     hq: "", period: "month", pOffset: 0, kind: "all", limit: PAGE, swipeId: null, flashId: null,
     debtSide: "owed", showClosed: false, bkMsg: "", bkCls: "", toast: null, storageError: false,
-    fbUser: null, fbStatus: "", tick: 0
+    readFail: "", updateReady: false, fbUser: null, fbStatus: "", tick: 0
   };
 
   // ───────────────────────────── lifecycle ─────────────────────────────
@@ -44,9 +52,15 @@ class Component extends DCLogic {
     this.whenLibsReady(() => this.fbInit());
     try {
       if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+        const had = !!navigator.serviceWorker.controller;
         navigator.serviceWorker.register("sw.js").catch(e => console.warn("[qalta] offline shell unavailable", e));
+        // a new release takes over at once, but this page keeps running the old code until it is reloaded
+        navigator.serviceWorker.addEventListener("controllerchange", () => { if (had) this.setState({ updateReady: true }); });
       }
     } catch (e) {}
+    // ask the browser not to evict the stored data when space runs low (best effort)
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+    this._onStorage = e => this.onStorage(e);
     this._onKey = e => this.onKey(e);
     this._onPop = () => this.onPop();
     this._onHide = () => { if (document.visibilityState === "hidden") this.flush(); else this.onVisible(); };
@@ -55,6 +69,7 @@ class Component extends DCLogic {
     window.addEventListener("popstate", this._onPop);
     document.addEventListener("visibilitychange", this._onHide);
     window.addEventListener("pagehide", this._onPageHide);
+    window.addEventListener("storage", this._onStorage);
     this._today = QL.ymd(Date.now());
     this.scheduleMidnight();
   }
@@ -64,20 +79,22 @@ class Component extends DCLogic {
     window.removeEventListener("popstate", this._onPop);
     document.removeEventListener("visibilitychange", this._onHide);
     window.removeEventListener("pagehide", this._onPageHide);
+    window.removeEventListener("storage", this._onStorage);
     if (this._onNet) { window.removeEventListener("online", this._onNet); window.removeEventListener("offline", this._onNet); }
-    clearInterval(this._libTimer); clearTimeout(this._pt); clearTimeout(this._toastT); clearTimeout(this._midT);
+    const d = this.dirty();
+    if (d.data || d.ui) this.persistNow();     // an unmount inside the 200 ms window must not drop the last change
+    clearInterval(this._libTimer); clearTimeout(this._pt); clearTimeout(this._retryT); clearTimeout(this._toastT); clearTimeout(this._midT);
     this.fbStopSync();
   }
 
   componentDidUpdate() {
-    const s = this.state;
-    let dataChanged = false, uiChanged = false;
-    for (let i = 0; i < DATA_KEYS.length; i++) if (s[DATA_KEYS[i]] !== this._persisted[DATA_KEYS[i]]) { dataChanged = true; break; }
-    for (let i = 0; i < UI_KEYS.length; i++) if (s[UI_KEYS[i]] !== this._persistedUi[UI_KEYS[i]]) { uiChanged = true; break; }
-    if (dataChanged || uiChanged) this.persistSoon();
-    if (dataChanged && this._sync) this._sync.pushSoon();
+    const s = this.state, d = this.dirty();
+    if (d.data || d.ui) this.persistSoon();
+    if (d.data && this._sync) this._sync.pushSoon();
     if (s.lang !== this._lang) { this._lang = s.lang; this.applyLang(); }
     if (s.theme !== this._theme) { this._theme = s.theme; this.applyTheme(); }
+    // a debt sheet cannot outlive its debt (deleted on another device, say)
+    if (s.viewDebtId != null && QL.hasLayer(s.layers, "debtView") && !this.findDebt(s.viewDebtId)) this.closeKinds(["debtView"]);
     this.layerEffects();
   }
 
@@ -89,6 +106,11 @@ class Component extends DCLogic {
     DATA_KEYS.forEach(k => { this._persisted[k] = this.state[k]; });
     UI_KEYS.forEach(k => { this._persistedUi[k] = this.state[k]; });
   }
+  // What differs from what was last read or written. A failed write leaves it different, so it is retried.
+  dirty() {
+    const s = this.state;
+    return { data: DATA_KEYS.some(k => s[k] !== this._persisted[k]), ui: UI_KEYS.some(k => s[k] !== this._persistedUi[k]) };
+  }
 
   loadStored() {
     let raw = null;
@@ -97,24 +119,36 @@ class Component extends DCLogic {
       let parsed = null, clean = null;
       try { parsed = JSON.parse(raw); clean = QL.sanitizeState(parsed, Date.now()); } catch (e) { clean = null; }
       if (clean) {
-        // Earlier versions seeded demo data; an untouched demo is not the person's data.
+        // Earlier versions seeded demo data; an untouched demo is not the person's data (their settings are).
         let seed = null;
         try { seed = localStorage.getItem("qalta-seed-hash"); } catch (e) {}
         const untouched = !!seed && JSON.stringify([parsed.ops, parsed.debts, parsed.closed || []]) === seed;
-        try { if (seed) localStorage.removeItem("qalta-seed-hash"); } catch (e) {}
-        if (untouched) this._migrated = true; else this.setState(clean);
-      } else {
-        // Keep the unreadable blob instead of silently overwriting it.
-        try { localStorage.setItem(STORE_KEY + ".corrupt", raw); } catch (e2) {}
-        console.error("[qalta] stored data unreadable; backed up to " + STORE_KEY + ".corrupt");
-      }
+        if (untouched) { this._migrated = true; this.setState(Object.assign({}, clean, { ops: [], debts: [], closed: [] })); }
+        else {
+          this.setState(clean);
+          try { if (seed) localStorage.removeItem("qalta-seed-hash"); } catch (e) {}
+        }
+      } else this.readFailed(raw);
     }
     try {
       const ui = JSON.parse(localStorage.getItem(UI_KEY) || "null");
       if (ui && typeof ui === "object") this.setState(this.cleanUi(ui));
     } catch (e) {}
     this.markPersisted();
-    if (this._migrated) this.persistNow();
+    // Every local copy of the data has an identity; the sync bookkeeping is tied to it (see sync-engine.js).
+    // It and a migrated copy are set after markPersisted, so they count as unsaved and are retried until stored.
+    const fresh = !this.state.gen;
+    if (fresh) this.setState({ gen: QL.newGen(Date.now()) });
+    if (this._migrated) this._persisted.ops = undefined;
+    if (fresh || this._migrated) this.persistNow();
+  }
+
+  // The stored data is unreadable: keep the raw text, say so, start empty (the first change replaces it).
+  readFailed(raw) {
+    let kept = false;
+    try { localStorage.setItem(STORE_KEY + ".corrupt", raw); kept = localStorage.getItem(STORE_KEY + ".corrupt") === raw; } catch (e) {}
+    console.error("[qalta] stored data unreadable" + (kept ? "; copy kept as " + STORE_KEY + ".corrupt" : "; the copy could not be kept"));
+    this.setState({ readFail: kept ? "kept" : "lost" });
   }
 
   cleanUi(ui) {
@@ -128,19 +162,58 @@ class Component extends DCLogic {
   }
 
   persistSoon() { clearTimeout(this._pt); this._pt = setTimeout(() => this.persistNow(), 200); }
-  flush() { if (this._pt) this.persistNow(); }
+  flush() {
+    const d = this.dirty();
+    if (this._pt || d.data || d.ui) this.persistNow();
+    if (this._sync) this._sync.flush();
+  }
   persistNow() {
     clearTimeout(this._pt); this._pt = null;
+    clearTimeout(this._retryT); this._retryT = null;
+    const s = this.state, d = this.dirty();
     let ok = true;
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(this.pickData()));
-      localStorage.setItem(UI_KEY, JSON.stringify(this.pickUi()));
-    } catch (e) {
-      ok = false;
-      console.error("[qalta] storage write failed; changes may not persist", e);
+    // Each key is written only when its own part changed: a tab that merely changed the theme must not
+    // replace the data another tab saved meanwhile.
+    if (d.data) {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(this.pickData()));
+        DATA_KEYS.forEach(k => { this._persisted[k] = s[k]; });
+        if (this._migrated) { this._migrated = false; try { localStorage.removeItem("qalta-seed-hash"); } catch (e) {} }
+      } catch (e) { ok = false; console.error("[qalta] storage write failed; changes may not persist", e); }
     }
-    this.markPersisted();
+    if (d.ui) {
+      try {
+        localStorage.setItem(UI_KEY, JSON.stringify(this.pickUi()));
+        UI_KEYS.forEach(k => { this._persistedUi[k] = s[k]; });
+      } catch (e) { ok = false; console.error("[qalta] storage write failed; preferences may not persist", e); }
+    }
+    // Keep trying: a failed write left alone would wait for an unrelated change, and be lost if the page closes first.
+    if (ok) this._retryN = 0;
+    else { this._retryN = (this._retryN || 0) + 1; this._retryT = setTimeout(() => this.persistNow(), Math.min(30000, 2000 * this._retryN)); }
     if (ok === this.state.storageError) this.setState({ storageError: !ok });
+  }
+
+  // Another tab or window of the app wrote the stored data: adopt it, so this tab never overwrites it later
+  // with an older copy.
+  onStorage(e) {
+    if (!e || (e.storageArea && e.storageArea !== localStorage) || !e.newValue) return;
+    if (e.key === STORE_KEY) {
+      if (this.dirty().data) return;               // this tab has a change of its own that is about to be written
+      let clean = null;
+      try { clean = QL.sanitizeState(JSON.parse(e.newValue), Date.now()); } catch (err) { clean = null; }
+      if (!clean) return;
+      const next = Object.assign(blankData(), LOOK_DEFAULTS, clean);
+      DATA_KEYS.forEach(k => { this._persisted[k] = k in next ? next[k] : this.state[k]; });
+      this.setState(next);
+    } else if (e.key === UI_KEY) {
+      if (this.dirty().ui) return;
+      let ui = null;
+      try { ui = JSON.parse(e.newValue); } catch (err) { ui = null; }
+      if (!ui || typeof ui !== "object") return;
+      const next = this.cleanUi(ui);
+      UI_KEYS.forEach(k => { this._persistedUi[k] = next[k]; });
+      this.setState(next);
+    }
   }
 
   applyLang() {
@@ -218,18 +291,8 @@ class Component extends DCLogic {
       if (n > 0 && !this._hist) { history.pushState({ qlayer: 1 }, ""); this._hist = 1; }
       else if (n === 0 && this._hist) { this._hist = 0; this._ignorePop = true; history.back(); }
     } catch (e) { this._ignorePop = false; }
-    const kind = this.topKind();
-    if (kind !== this._topKind) {
-      if (!this._topKind && kind) this._lastFocus = document.activeElement;
-      this._topKind = kind;
-      if (kind) {
-        const raf = window.requestAnimationFrame || (f => setTimeout(f, 16));
-        raf(() => { const el = document.getElementById("layer-" + kind); if (el && el.focus) el.focus({ preventScroll: true }); });
-      } else if (this._lastFocus) {
-        try { if (document.contains(this._lastFocus)) this._lastFocus.focus({ preventScroll: true }); } catch (e) {}
-        this._lastFocus = null;
-      }
-    }
+    // Inert first: an element inside an inert subtree cannot take focus, so focus goes back to the opener
+    // only once the page behind the sheet is live again.
     try {
       const main = document.getElementById("q-main");
       if (main) main.inert = n > 0;
@@ -238,6 +301,24 @@ class Component extends DCLogic {
       els.forEach(el => { max = Math.max(max, parseInt(el.style.zIndex || "0", 10)); });
       els.forEach(el => { el.inert = parseInt(el.style.zIndex || "0", 10) !== max; });
     } catch (e) {}
+    const kind = this.topKind();
+    if (kind !== this._topKind) {
+      if (!this._topKind && kind) this._lastFocus = document.activeElement;
+      this._topKind = kind;
+      const raf = window.requestAnimationFrame || (f => setTimeout(f, 16));
+      if (kind) {
+        raf(() => { const el = document.getElementById("layer-" + kind); if (el && el.focus) el.focus({ preventScroll: true }); });
+      } else {
+        const back = this._lastFocus; this._lastFocus = null;
+        raf(() => {
+          try {
+            // the control that opened the sheet; when it is gone (the row was deleted, the screen changed) the screen's heading
+            const target = back && back !== document.body && document.contains(back) ? back : document.querySelector("#q-scroll h1");
+            if (target && target.focus) target.focus({ preventScroll: true });
+          } catch (e) {}
+        });
+      }
+    }
   }
   onPop() {
     if (this._ignorePop) { this._ignorePop = false; return; }
@@ -245,20 +326,25 @@ class Component extends DCLogic {
     if (this.state.layers.length) this.dismissTop();
   }
 
-  // swipe-down to dismiss a sheet (drag the grabber/header)
+  // swipe-down to dismiss a sheet (drag the grabber/header). The controls inside the header keep their own
+  // taps: the pointer is captured only once it has really moved (capturing on press made a mouse click on
+  // the close button or the Expense/Income switch land on the header instead).
   sheetDown = e => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest("button, [role=button], [role=radio], a, input, select, textarea")) return;
     const sheet = e.currentTarget && e.currentTarget.closest ? e.currentTarget.closest(".q-sheet") : null;
     if (!sheet) return;
-    this._drag = { y0: e.clientY, sheet, dy: 0, t0: Date.now() };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    this._drag = { y0: e.clientY, sheet, dy: 0, t0: Date.now(), el: e.currentTarget, id: e.pointerId, cap: false };
   };
   sheetMove = e => {
     const d = this._drag;
     if (!d) return;
     const dy = Math.max(0, e.clientY - d.y0);
     d.dy = dy;
-    if (dy > 4) { d.sheet.classList.add("drag"); d.sheet.style.transform = "translateY(" + dy + "px)"; }
+    if (dy > 4) {
+      if (!d.cap) { d.cap = true; try { d.el.setPointerCapture(d.id); } catch (err) {} }
+      d.sheet.classList.add("drag"); d.sheet.style.transform = "translateY(" + dy + "px)";
+    }
   };
   sheetUp = () => {
     const d = this._drag;
@@ -279,6 +365,8 @@ class Component extends DCLogic {
     const el = e.target;
     const tag = el && el.tagName;
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    // Ctrl/Cmd+Z takes the last action back while its toast is still up (never while typing in a field)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === "z" && !typing && this._undoFn) { e.preventDefault(); this.runUndo(); return; }
     if ((e.key === "Enter" || e.key === " ") && el && el.getAttribute && el.getAttribute("role") === "button" && el.tabIndex >= 0) {
       e.preventDefault(); el.click(); return;
     }
@@ -295,8 +383,12 @@ class Component extends DCLogic {
     clearTimeout(this._toastT);
     this._undoFn = undo || null;
     this.setState({ toast: { text, undo: !!undo } });
-    this._toastT = setTimeout(() => { this._undoFn = null; this.setState({ toast: null }); }, TOAST_MS);
+    this.armToast();
   }
+  armToast() { clearTimeout(this._toastT); this._toastT = setTimeout(() => { this._undoFn = null; this.setState({ toast: null }); }, TOAST_MS); }
+  // The undo is not on a clock while the person is reaching for it (pointer over the toast, focus on its button).
+  toastPause = () => { clearTimeout(this._toastT); };
+  toastResume = () => { if (this.state.toast) this.armToast(); };
   hideToast() { clearTimeout(this._toastT); this._undoFn = null; if (this.state.toast) this.setState({ toast: null }); }
   runUndo = () => { const fn = this._undoFn; this.hideToast(); if (fn) fn(); };
   flashRow(id) {
@@ -313,6 +405,13 @@ class Component extends DCLogic {
     if (this.state.tab === id) { try { const sc = document.getElementById("q-scroll"); if (sc) sc.scrollTop = 0; } catch (e) {} return; }
     this.setState({ tab: id, swipeId: null });
     try { const sc = document.getElementById("q-scroll"); if (sc) sc.scrollTop = 0; } catch (e) {}
+    this.focusScreen();
+  }
+  // After a tab switch focus moves to the new screen's heading, so a screen reader announces where it is
+  // and keyboard users continue from the top of the new screen.
+  focusScreen() {
+    const raf = window.requestAnimationFrame || (f => setTimeout(f, 16));
+    raf(() => { try { const h = document.querySelector("#q-scroll h1"); if (h && h.focus) h.focus({ preventScroll: true }); } catch (e) {} });
   }
   setTip(key, val) { this.setState(st => ({ tips: Object.assign({}, st.tips, { [key]: val === undefined ? true : val }) })); }
 
@@ -341,7 +440,7 @@ class Component extends DCLogic {
       f.amount = s.budget ? String(s.budget) : "";
     } else if (f.mode === "opening") {
       f.account = o.account;
-      const b = QL.balances(s.openCash, s.openCard, s.ops);
+      const b = QL.balances(s, s.ops, now);
       const known = o.account === "cash" ? b.hasCash : b.hasCard, cur = o.account === "cash" ? b.cash : b.card;
       f.amount = known && cur > 0 ? String(cur) : ""; f.zero = known && cur === 0;
     }
@@ -381,7 +480,7 @@ class Component extends DCLogic {
   entryValid(f) {
     const amt = QL.amountFromDigits(f.amount);
     if (f.mode === "op") return amt > 0 && !!f.cat;
-    if (f.mode === "debt") return amt > 0 && !!f.who.trim();
+    if (f.mode === "debt") return amt > 0 && !!f.who.trim() && amt >= this.paidOf(f);
     if (f.mode === "repay") return amt > 0;
     if (f.mode === "budget") return true;
     return f.amount !== "" || f.zero;
@@ -391,7 +490,13 @@ class Component extends DCLogic {
     if (amt <= 0 && f.mode !== "budget" && f.mode !== "opening") return t.errAmount;
     if (f.mode === "op" && !f.cat) return t.errCat;
     if (f.mode === "debt" && !f.who.trim()) return t.errWho;
+    if (f.mode === "debt" && amt < this.paidOf(f)) return QL.fill(t.errBelowPaid, { n: this.ctxLite().fmt(this.paidOf(f)) });
     return "";
+  }
+  // What has already been repaid on the debt being edited (the sum cannot go below it).
+  paidOf(f) {
+    const d = f.editId ? this.state.debts.find(x => x.id === f.editId) : null;
+    return d ? d.paid || 0 : 0;
   }
 
   saveEntry = () => {
@@ -413,10 +518,12 @@ class Component extends DCLogic {
         this.closeKinds(["entry"]);
         this.showToast(t.tBudgetSaved, () => this.setState({ budget: prev }));
       } else if (f.mode === "opening") {
-        const key = f.account === "cash" ? "openCash" : "openCard", prev = s[key];
-        this.setState({ [key]: QL.openingFor(amt, s.ops, f.account) });
+        // "I have X now": X and the moment it was typed in; only operations from then on move it
+        const key = f.account === "cash" ? "openCash" : "openCard", atKey = key + "At";
+        const prev = { [key]: s[key], [atKey]: s[atKey] };
+        this.setState({ [key]: amt, [atKey]: now });
         this.closeKinds(["entry"]);
-        this.showToast(t.tBalanceSaved, () => this.setState({ [key]: prev }));
+        this.showToast(t.tBalanceSaved, () => this.setState(prev));
       }
     } finally { this._saving = false; }
   };
@@ -427,13 +534,14 @@ class Component extends DCLogic {
     const sign = f.dir === "income" ? 1 : -1;
     const note = (f.note || "").trim().slice(0, 200);
     if (f.editId) {
+      // The record may have been deleted elsewhere while the sheet was open: saving then writes it again,
+      // so nothing the person typed is lost.
       const prev = s.ops.find(o => o.id === f.editId);
-      if (!prev) { this.closeKinds(["entry", "cats", "when"]); return; }
-      const op = Object.assign({}, prev, { ts, date: QL.ddmm(ts), cat: f.cat, pay: f.pay, note, sum: sign * amt });
-      this.setState({ ops: s.ops.map(o => (o.id === op.id ? op : o)), lastPay: f.pay });
+      const op = Object.assign({ id: f.editId }, prev, { ts, date: QL.ddmm(ts), cat: f.cat, pay: f.pay, note, sum: sign * amt });
+      this.setState({ ops: prev ? s.ops.map(o => (o.id === op.id ? op : o)) : [op].concat(s.ops), lastPay: f.pay });
       this.closeKinds(["entry", "cats", "when"]);
       this.flashRow(op.id);
-      this.showToast(t.tSaved, () => this.setState(st => ({ ops: st.ops.map(o => (o.id === prev.id ? prev : o)) })));
+      this.showToast(t.tSaved, () => this.setState(st => ({ ops: prev ? st.ops.map(o => (o.id === prev.id ? prev : o)) : st.ops.filter(o => o.id !== op.id) })));
       return;
     }
     const op = { id: QL.newId(now), date: QL.ddmm(ts), ts, cat: f.cat, note, sum: sign * amt, pay: f.pay };
@@ -447,13 +555,21 @@ class Component extends DCLogic {
   saveDebt(f, amt, now, t) {
     const s = this.state, who = f.who.trim().slice(0, 60), note = (f.note || "").trim().slice(0, 200);
     if (f.editId) {
-      const prev = s.debts.find(d => d.id === f.editId);
-      if (!prev) { this.closeKinds(["entry", "when"]); return; }
-      const d = Object.assign({}, prev, { who, note, sum: Math.max(amt, prev.paid || 0), mine: f.side === "owed" });
+      // Only open debts are edited (a closed one is restored first). If it vanished meanwhile, saving writes it
+      // again. The sum can never be below what was repaid: entryValid refuses that.
+      const prev = s.debts.find(x => x.id === f.editId), before = { debts: s.debts, closed: s.closed };
+      const d = Object.assign({ id: f.editId, paid: 0, log: [], ts: now }, prev, { who, note, sum: amt, mine: f.side === "owed" });
       if (f.due) d.due = f.due; else delete d.due;
-      this.setState({ debts: s.debts.map(x => (x.id === d.id ? d : x)) });
-      this.closeKinds(["entry", "when"]);
-      this.showToast(t.tSaved, () => this.setState(st => ({ debts: st.debts.map(x => (x.id === prev.id ? prev : x)) })));
+      if (QL.debtLeft(d) === 0) {
+        // nothing left to repay: the debt is settled, like after a final repayment
+        d.closedAt = QL.ddmm(now); d.reason = "full";
+        this.setState({ debts: s.debts.filter(x => x.id !== d.id), closed: [d].concat(s.closed.filter(x => x.id !== d.id)) });
+        this.closeKinds(["entry", "when", "debtView"]);
+      } else {
+        this.setState({ debts: prev ? s.debts.map(x => (x.id === d.id ? d : x)) : [d].concat(s.debts) });
+        this.closeKinds(["entry", "when"]);
+      }
+      this.showToast(t.tSaved, () => this.undoDebts([d.id], before));
       return;
     }
     const d = { id: QL.newId(now), who, note, sum: amt, mine: f.side === "owed", paid: 0, log: [], ts: now };
@@ -465,7 +581,7 @@ class Component extends DCLogic {
 
   saveRepay(f, amt, now, t) {
     const s = this.state, debt = s.debts.find(d => d.id === f.debtId);
-    if (!debt) { this.closeKinds(["entry"]); return; }
+    if (!debt) { this.closeKinds(["entry"]); this.showToast(t.debtGone); return; }
     const r = QL.applyRepayment(debt, amt, now, now.toString(36) + Math.random().toString(36).slice(2, 6));
     if (!r.applied) { this.closeKinds(["entry"]); return; }
     const before = { debts: s.debts, closed: s.closed };
@@ -476,7 +592,12 @@ class Component extends DCLogic {
       this.setState({ debts: s.debts.map(d => (d.id === debt.id ? r.debt : d)) });
       this.closeKinds(["entry"]);
     }
-    this.showToast(t.tRepaid, () => this.setState(before));
+    this.showToast(t.tRepaid, () => this.undoDebts([debt.id], before));
+  }
+  // Undo for debts: put back only the debts an action touched (list and content); debts that arrived or
+  // changed meanwhile on another device stay as they are.
+  undoDebts(ids, before) {
+    this.setState(st => ({ debts: QL.restoreById(st.debts, before.debts, ids), closed: QL.restoreById(st.closed, before.closed, ids) }));
   }
 
   // ───────────────────────────── operations ─────────────────────────────
@@ -500,7 +621,7 @@ class Component extends DCLogic {
     const before = { debts: s.debts, closed: s.closed };
     this.setState({ debts: s.debts.filter(x => x.id !== id), closed: [Object.assign({}, d, { closedAt: QL.ddmm(Date.now()), reason: "manual" })].concat(s.closed) });
     this.closeKinds(["debtView"]);
-    this.showToast(t.tDebtClosed, () => this.setState(before));
+    this.showToast(t.tDebtClosed, () => this.undoDebts([id], before));
   }
   restoreDebt(id) {
     const s = this.state, d = s.closed.find(x => x.id === id), t = this.t();
@@ -509,22 +630,22 @@ class Component extends DCLogic {
     const back = Object.assign({}, d); delete back.closedAt; delete back.reason;
     if (QL.debtLeft(back) === 0) { back.paid = 0; back.log = []; }
     this.setState({ closed: s.closed.filter(x => x.id !== id), debts: [back].concat(s.debts) });
-    this.showToast(t.tRestored, () => this.setState(before));
+    this.showToast(t.tRestored, () => this.undoDebts([id], before));
   }
   deleteDebt(id) {
     const s = this.state, t = this.t();
     const before = { debts: s.debts, closed: s.closed };
     this.setState({ debts: s.debts.filter(x => x.id !== id), closed: s.closed.filter(x => x.id !== id) });
     this.closeKinds(["debtView"]);
-    this.showToast(t.tDebtDeleted, () => this.setState(before));
+    this.showToast(t.tDebtDeleted, () => this.undoDebts([id], before));
   }
   removeRepayment(debtId, logIdx) {
     const s = this.state, d = s.debts.find(x => x.id === debtId), t = this.t();
     if (!d || !d.log || !d.log[logIdx]) return;
-    const entry = d.log[logIdx], before = { debts: s.debts };
+    const entry = d.log[logIdx], before = { debts: s.debts, closed: s.closed };
     const nd = Object.assign({}, d, { paid: Math.max(0, (d.paid || 0) - entry.sum), log: d.log.filter((_, i) => i !== logIdx) });
     this.setState({ debts: s.debts.map(x => (x.id === debtId ? nd : x)) });
-    this.showToast(t.tRepayRemoved, () => this.setState(before));
+    this.showToast(t.tRepayRemoved, () => this.undoDebts([debtId], before));
   }
 
   // ───────────────────────────── categories ─────────────────────────────
@@ -556,11 +677,32 @@ class Component extends DCLogic {
     const def = QL.catLook(name, {}, {});
     if (ce.color.toUpperCase() !== def.l.toUpperCase()) colors[name] = ce.color.toUpperCase(); else delete colors[name];
     if (ce.icon !== def.icon) icons[name] = ce.icon; else delete icons[name];
-    const before = { ops: s.ops, [key]: s[key], catColors: s.catColors, catIcons: s.catIcons };
+    const before = { ops: s.ops, colors: s.catColors, icons: s.catIcons };
+    const touched = ce.orig && name !== ce.orig ? s.ops.filter(o => o.cat === ce.orig).map(o => o.id) : [];
     this.setState({ [key]: list, catColors: colors, catIcons: icons, ops });
     if (ce.then === "select" && s.form) { this.setForm({ cat: name }); this.closeKinds(["catEdit", "cats"]); }
     else this.closeKinds(["catEdit"]);
-    this.showToast(t.tCatSaved, () => this.setState(before));
+    this.showToast(t.tCatSaved, () => this.undoCategory({ kind: ce.kind, key, name, orig: ce.orig, before, touched }));
+  }
+  // Undo for a category edit: reverse just that edit (its name, its look, the operations it renamed), so
+  // a later reordering or operations that arrived meanwhile are kept.
+  undoCategory(u) {
+    this.setState(st => {
+      const list = (st[u.key] || QL.DEFAULT_CATS[u.kind === "income" ? "income" : "expense"]).slice();
+      let next;
+      if (u.orig) { const i = list.indexOf(u.name); if (i >= 0) list[i] = u.orig; next = list; }
+      else next = list.filter(c => c !== u.name);
+      const colors = Object.assign({}, st.catColors), icons = Object.assign({}, st.catIcons);
+      [u.name, u.orig].forEach(n => {
+        if (n == null) return;
+        delete colors[n]; delete icons[n];
+        if (QL.own(u.before.colors, n) !== undefined) colors[n] = u.before.colors[n];
+        if (QL.own(u.before.icons, n) !== undefined) icons[n] = u.before.icons[n];
+      });
+      return { [u.key]: next, catColors: colors, catIcons: icons, ops: QL.restoreById(st.ops, u.before.ops, u.touched) };
+    });
+    // a category that was just made from the picker may still be selected in the open form
+    if (!u.orig && this.state.form && this.state.form.cat === u.name) this.setForm({ cat: null });
   }
   deleteTargetOf(kind, name) {
     const list = this.cats(kind);
@@ -574,12 +716,23 @@ class Component extends DCLogic {
     const key = ce.kind === "income" ? "iCats" : "eCats", list = this.cats(ce.kind);
     const to = this.deleteTargetOf(ce.kind, ce.orig);
     if (list.length <= 1 || !to) return;
-    const before = { ops: s.ops, [key]: s[key], catColors: s.catColors, catIcons: s.catIcons };
+    const before = { ops: s.ops, colors: s.catColors, icons: s.catIcons };
+    const idx = list.indexOf(ce.orig), touched = s.ops.filter(o => o.cat === ce.orig).map(o => o.id);
     const colors = Object.assign({}, s.catColors), icons = Object.assign({}, s.catIcons);
     delete colors[ce.orig]; delete icons[ce.orig];
     this.setState({ [key]: list.filter(c => c !== ce.orig), ops: s.ops.map(o => (o.cat === ce.orig ? Object.assign({}, o, { cat: to }) : o)), catColors: colors, catIcons: icons });
     this.closeKinds(["catEdit"]);
-    this.showToast(t.tCatDeleted, () => this.setState(before));
+    this.showToast(t.tCatDeleted, () => this.undoCategoryDelete({ kind: ce.kind, key, name: ce.orig, idx, before, touched }));
+  }
+  undoCategoryDelete(u) {
+    this.setState(st => {
+      const list = (st[u.key] || QL.DEFAULT_CATS[u.kind === "income" ? "income" : "expense"]).slice();
+      if (list.indexOf(u.name) < 0) list.splice(Math.min(u.idx, list.length), 0, u.name);
+      const colors = Object.assign({}, st.catColors), icons = Object.assign({}, st.catIcons);
+      if (QL.own(u.before.colors, u.name) !== undefined) colors[u.name] = u.before.colors[u.name];
+      if (QL.own(u.before.icons, u.name) !== undefined) icons[u.name] = u.before.icons[u.name];
+      return { [u.key]: list, catColors: colors, catIcons: icons, ops: QL.restoreById(st.ops, u.before.ops, u.touched) };
+    });
   }
   moveCat(kind, name, delta) {
     const key = kind === "income" ? "iCats" : "eCats", list = this.cats(kind).slice();
@@ -609,19 +762,44 @@ class Component extends DCLogic {
     if (f.size > 5 * 1024 * 1024) { this.setState({ bkMsg: t.backupBad, bkCls: "tx-neg" }); e.target.value = ""; return; }
     const reader = new FileReader();
     reader.onload = () => {
-      let clean = null;
-      try { clean = QL.sanitizeState(JSON.parse(reader.result), Date.now()); } catch (err) { clean = null; }
+      let parsed = null, clean = null;
+      try { parsed = JSON.parse(reader.result); clean = QL.sanitizeState(parsed, Date.now()); } catch (err) { clean = null; }
       if (!clean) { this.setState({ bkMsg: t.backupBad, bkCls: "tx-neg" }); return; }
+      const rawDebts = parsed.debts.length + (Array.isArray(parsed.closed) ? parsed.closed.length : 0);
+      const keptDebts = clean.debts.length + clean.closed.length;
+      const skipped = parsed.ops.length - clean.ops.length + rawDebts - keptDebts;
+      // a file in which every row was rejected is the wrong file, not an empty backup
+      if (parsed.ops.length + rawDebts > 0 && clean.ops.length + keptDebts === 0) { this.setState({ bkMsg: t.backupBad, bkCls: "tx-neg" }); return; }
       const before = this.pickData();
-      try { localStorage.setItem("qalta-backup-before-import", JSON.stringify(before)); } catch (err) {}
-      const blank = { budget: undefined, openCash: undefined, openCard: undefined, catIcons: {}, eCats: undefined, iCats: undefined };
-      this.setState(Object.assign(blank, clean));
+      // replacing everything is only done with a copy of what is being replaced
+      if (!this.isSeed()) {
+        try { localStorage.setItem("qalta-backup-before-import", JSON.stringify(before)); }
+        catch (err) { this.setState({ bkMsg: t.backupNoCopy, bkCls: "tx-neg" }); return; }
+      }
+      delete clean.gen;                              // this device keeps its own identity
+      this.setState(Object.assign(blankData(), clean));
       this.closeKinds(["backup"]);
-      this.showToast(t.tImported, () => this.setState(before));
+      const ids = {
+        ops: before.ops.map(o => o.id).concat(clean.ops.map(o => o.id)),
+        debts: before.debts.concat(before.closed, clean.debts, clean.closed).map(d => d.id)
+      };
+      const vars = { ops: clean.ops.length, debts: keptDebts, n: skipped };
+      this.showToast(QL.fill(skipped > 0 ? t.tImportedSkip : t.tImportedN, vars), () => this.undoImport(before, ids));
     };
     reader.onerror = () => this.setState({ bkMsg: t.backupBad, bkCls: "tx-neg" });
     reader.readAsText(f);
     e.target.value = "";
+  }
+  // Undo for an import: bring back what the import replaced, leaving records that arrived since alone.
+  undoImport(before, ids) {
+    this.setState(st => ({
+      ops: QL.restoreById(st.ops, before.ops, ids.ops),
+      debts: QL.restoreById(st.debts, before.debts, ids.debts),
+      closed: QL.restoreById(st.closed, before.closed, ids.debts),
+      eCats: before.eCats, iCats: before.iCats, catColors: before.catColors, catIcons: before.catIcons, catSizes: before.catSizes,
+      budget: before.budget, openCash: before.openCash, openCard: before.openCard, openCashAt: before.openCashAt, openCardAt: before.openCardAt,
+      hex: before.hex, lang: before.lang
+    }));
   }
 
   // ───────────────────────────── Firebase (optional cloud sync) ─────────────────────────────
@@ -653,9 +831,31 @@ class Component extends DCLogic {
       else if (++n > 200) clearInterval(this._libTimer); // ~20 s: stay local-only (offline / blocked CDN)
     }, 100);
   }
+  // Switching to another account starts this device clean. What the previous account had is first kept in
+  // a local backup; if that copy cannot be written nothing is wiped (returns false). A device with nothing of
+  // its own skips the copy so an older, valuable one is not overwritten by an empty one.
   resetLocalData() {
-    try { localStorage.setItem("qalta-backup-before-switch", JSON.stringify(this.pickData())); } catch (e) {}
-    this.setState({ ops: [], debts: [], closed: [], eCats: undefined, iCats: undefined, catColors: {}, catIcons: {}, budget: undefined, openCash: undefined, openCard: undefined });
+    if (!this.isSeed()) {
+      try { localStorage.setItem("qalta-backup-before-switch", JSON.stringify(this.pickData())); }
+      catch (e) { console.error("[qalta] could not back up the previous account's data", e); return false; }
+    }
+    this.setState(Object.assign(blankData(), { gen: QL.newGen(Date.now()) }));
+    return true;
+  }
+  // Returns false when the device could not be prepared for this account (and nothing was wiped).
+  prepareForAccount(uid) {
+    let last = null;
+    try { last = localStorage.getItem("qalta-last-uid"); } catch (e) { return true; }   // storage unusable: nothing to protect or wipe
+    if (last === uid) return true;
+    if (last) {
+      // the marker first: if it cannot be written the wipe would repeat at every start
+      try { localStorage.setItem("qalta-last-uid", uid); } catch (e) { return false; }
+      if (!this.resetLocalData()) { try { localStorage.setItem("qalta-last-uid", last); } catch (e) {} return false; }
+      try { localStorage.removeItem("qalta-sync-v2:" + last); } catch (e) {}
+      return true;
+    }
+    try { localStorage.setItem("qalta-last-uid", uid); } catch (e) {}
+    return true;
   }
   fbInit() {
     let cfg = window.QALTA_FIREBASE_CONFIG;
@@ -669,16 +869,23 @@ class Component extends DCLogic {
       if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(cfg);
       this._fbAuth = firebase.auth();
       this._fbDb = firebase.firestore();
-      this._fbReady = this._fbDb.enablePersistence({ synchronizeTabs: true }).catch(err => {
-        console.warn("[qalta] offline cache unavailable (" + (err && err.code) + "); sync needs a connection", err);
-      });
+      // never wait for the offline cache for ever: after a few seconds sync starts without it
+      this._fbReady = Promise.race([
+        this._fbDb.enablePersistence({ synchronizeTabs: true }).catch(err => {
+          console.warn("[qalta] offline cache unavailable (" + (err && err.code) + "); sync needs a connection", err);
+        }),
+        new Promise(res => setTimeout(res, 8000))
+      ]);
       this._onNet = () => { if (this._sync) this._sync.status(); };
       window.addEventListener("online", this._onNet);
       window.addEventListener("offline", this._onNet);
       this._fbAuth.onAuthStateChanged(user => {
         if (user) {
           this.setState({ fbUser: { uid: user.uid, name: user.displayName || user.email || "", email: user.email || "" }, fbStatus: "loading" });
-          this._fbReady.then(() => this.fbStartSync(user.uid));
+          this._fbReady.then(() => this.fbStartSync(user.uid)).catch(err => {
+            console.error("[qalta] sync could not start", err);
+            this.setState({ fbStatus: "error" });
+          });
         } else {
           this.fbStopSync();
           this.setState({ fbUser: null, fbStatus: "" });
@@ -689,11 +896,7 @@ class Component extends DCLogic {
   }
   fbStartSync(uid) {
     this.fbStopSync();
-    try {
-      const last = localStorage.getItem("qalta-last-uid");
-      if (last && last !== uid) { this.resetLocalData(); localStorage.removeItem("qalta-sync-v2:" + last); }
-      localStorage.setItem("qalta-last-uid", uid);
-    } catch (e) {}
+    if (!this.prepareForAccount(uid)) { this.showToast(this.t().switchFailed); this.fbSignOut(); return; }
     const FV = firebase.firestore.FieldValue;
     this._sync = new QaltaSync.Engine({
       db: this._fbDb, uid, deviceId: this.deviceId(), storage: localStorage,
@@ -708,6 +911,7 @@ class Component extends DCLogic {
   fbStopSync() { if (this._sync) { this._sync.stop(); this._sync = null; } }
   fbSignIn = () => {
     if (!this._fbAuth || typeof firebase === "undefined") return;
+    if (this.state.fbStatus === "error") this.setState({ fbStatus: "" });
     const provider = new firebase.auth.GoogleAuthProvider();
     this._fbAuth.signInWithPopup(provider).catch(err => {
       const code = err && err.code;
@@ -773,6 +977,11 @@ class Component extends DCLogic {
       goHistory: () => this.goTab("history"),
       dismissTop: this.dismissTop, sheetDown: this.sheetDown, sheetMove: this.sheetMove, sheetUp: this.sheetUp,
       banner: s.storageError ? t.storageError : "", hasBanner: s.storageError,
+      readBanner: s.readFail === "kept" ? t.readFailKept : s.readFail === "lost" ? t.readFailLost : "", hasReadBanner: !!s.readFail,
+      dismissRead: () => this.setState({ readFail: "" }), dismissLabel: t.dismiss,
+      hasUpdate: s.updateReady, updateText: t.updateReady, updateLabel: t.updateAction, reloadNow: () => { try { location.reload(); } catch (e) {} },
+      toastPause: this.toastPause, toastResume: this.toastResume,
+      fbSignInError: !s.fbUser && s.fbStatus === "error" ? t.signInFailed : "",
       hasToast: !!s.toast, toastText: s.toast ? s.toast.text : "", hasToastAction: !!(s.toast && s.toast.undo), toastActionLabel: t.undo, toastAction: this.runUndo,
       importFile: e => this.onImportFile(e),
       fbEnabled: !!(typeof firebase !== "undefined" && window.QALTA_FIREBASE_CONFIG && this._fbAuth),
@@ -807,7 +1016,7 @@ class Component extends DCLogic {
     const amount = c.smoney(o.sum, true);
     return Object.assign({
       id: o.id, name: c.trCat(o.cat), sub: parts.join(" · "), amount, amtCls: o.sum > 0 ? "tx-pos" : "",
-      aria: QL.fill(t.rowAria, { cat: c.trCat(o.cat), amount: c.smoney(o.sum, true), date: QL.dayLabel(ts, now, c.lang, { today: t.today, yesterday: t.yesterday }) }) + (o.note ? ", " + o.note : ""),
+      aria: QL.fill(t.rowAria, { cat: c.trCat(o.cat), amount: c.smoney(o.sum, true), date: QL.dayLabel(ts, now, c.lang, { today: t.today, yesterday: t.yesterday }) }) + (hasTs ? ", " + QL.hhmm(ts) + ", " + (o.pay === "cash" ? t.cash : t.card) : "") + (o.note ? ", " + o.note : ""),
       flash: s.flashId === o.id ? "flash" : "",
       tap: () => this.openEntry({ mode: "op", edit: this.state.ops.find(x => x.id === o.id) || o })
     }, v);
@@ -819,7 +1028,7 @@ class Component extends DCLogic {
     const monthOps = s.ops.filter(o => QL.inRange(QL.tsOfOp(o, now), range));
     const tot = QL.totals(monthOps), bud = QL.budgetStatus(s.budget, tot.spent, now);
     const byCat = QL.byCategory(monthOps);
-    const bal = QL.balances(s.openCash, s.openCard, s.ops);
+    const bal = QL.balances(s, s.ops, c.now);
 
     // setup tips (shown until done or dismissed), at most two
     const tips = [];
@@ -895,7 +1104,7 @@ class Component extends DCLogic {
 
     // Wallet stack: the three most used expense categories, back card first
     const ranked = QL.rankCategories(this.cats("expense"), s.ops.filter(o => o.sum < 0), now).slice(0, 3);
-    const spentBy = {}; byCat.forEach(x => { spentBy[x.cat] = x.sum; });
+    const spentBy = Object.create(null); byCat.forEach(x => { spentBy[x.cat] = x.sum; });
     out.wallet = ranked.slice().reverse().map((name, i) => Object.assign({
       i, name: c.trCat(name), sub: spentBy[name] ? c.money(spentBy[name]) : "", aria: t.addOp + ": " + c.trCat(name),
       pick: () => this.openEntry({ mode: "op", dir: "expense", cat: name })
@@ -988,7 +1197,7 @@ class Component extends DCLogic {
         return Object.assign({
           name: d.who, initial: (d.who || "?").trim().charAt(0).toUpperCase() || "?", sub, subCls: kind === "overdue" ? "tx-neg" : "muted",
           left: c.money(left), hasProg: (d.paid || 0) > 0, progW: Math.round((d.paid || 0) / Math.max(1, d.sum) * 100) + "%",
-          aria: QL.fill(t.debtAria, { who: d.who, side: mine ? t.owedToMe : t.iOwe, left: c.money(left) }),
+          aria: QL.fill(t.debtAria, { who: d.who, side: mine ? t.owedToMe : t.iOwe, left: c.money(left) }) + (dueT ? ", " + dueT : "") + (d.note ? ", " + d.note : ""),
           tap: () => this.openLayer("debtView", { viewDebtId: d.id })
         }, v);
       }),
@@ -1007,7 +1216,7 @@ class Component extends DCLogic {
 
   settingsVals(c) {
     const s = this.state, t = c.t, lang = c.lang;
-    const bal = QL.balances(s.openCash, s.openCard, s.ops);
+    const bal = QL.balances(s, s.ops, c.now);
     const row = (label, value, icon, pal, tap, aria) => { const p = this.palVis(pal); return { label, value, d: this.iconD(icon, "r"), cl: p.cl, cd: p.cd, tap, aria: aria || label + ": " + value }; };
     const themes = [["auto", t.themeAuto], ["light", t.themeLight], ["dark", t.themeDark]];
     return {
@@ -1024,7 +1233,7 @@ class Component extends DCLogic {
       langs: [["ru", "Рус"], ["kz", "Қаз"], ["en", "Eng"]].map(x => ({ name: x[1], on: s.lang === x[0], cls: s.lang === x[0] ? "on" : "", pick: () => this.setState({ lang: x[0] }) })),
       swatches: ACCENTS.map(id => {
         const p = QL.paletteById(id), on = (s.hex || "").toUpperCase() === p.l.toUpperCase();
-        return { c: p.l, f: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), on, cls: on ? "on" : "", aria: QL.fill(t.colorAria, { name: id }), pick: () => this.setState({ hex: p.l }) };
+        return { c: p.l, f: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), on, cls: on ? "on" : "", aria: QL.fill(t.colorAria, { name: (I18N.accents[lang] || I18N.accents.ru)[id] || id }), pick: () => this.setState({ hex: p.l }) };
       }),
       openBackup: () => this.openLayer("backup"),
       versionLine: QL.fill(t.version, { v: BUILD.version + " (" + BUILD.hash + ")" })
@@ -1032,7 +1241,7 @@ class Component extends DCLogic {
   }
 
   openCatList(kind) { this.openLayer("catList", { clKind: kind, clReorder: false }); }
-  catUsage() { const m = {}; this.state.ops.forEach(o => { m[o.cat] = (m[o.cat] || 0) + 1; }); return m; }
+  catUsage() { const m = Object.create(null); this.state.ops.forEach(o => { m[o.cat] = (m[o.cat] || 0) + 1; }); return m; }
 
   catListVals(c) {
     const s = this.state, t = c.t, kind = s.clKind;
@@ -1067,7 +1276,7 @@ class Component extends DCLogic {
       hasErr: !!ce.err, err: ce.err, saveOff: !nameOk, saveOp: nameOk ? 1 : 0.4, save: () => this.saveCategory(),
       colors: QL.PALETTE.map(p => ({
         c: p.l, f: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), on: ce.color.toUpperCase() === p.l.toUpperCase(), cls: ce.color.toUpperCase() === p.l.toUpperCase() ? "on" : "",
-        aria: QL.fill(t.colorAria, { name: p.id }), pick: () => this.setState(st => ({ ce: Object.assign({}, st.ce, { color: p.l }) }))
+        aria: QL.fill(t.colorAria, { name: (I18N.accents[s.lang] || I18N.accents.ru)[p.id] || p.id }), pick: () => this.setState(st => ({ ce: Object.assign({}, st.ce, { color: p.l }) }))
       })),
       icons: PICK_ICONS.filter(n => ICONS[n]).map(n => ({ name: n, d: this.iconD(n, "f"), on: ce.icon === n, cls: ce.icon === n ? "on" : "", pick: () => this.setState(st => ({ ce: Object.assign({}, st.ce, { icon: n }) })) })),
       showDelete: !!ce.orig && list.length > 1 && !!to, remove: () => this.removeCategory(),
@@ -1125,8 +1334,8 @@ class Component extends DCLogic {
 
   debtViewVals(c) {
     const s = this.state, t = c.t, now = c.now, d = this.findDebt(s.viewDebtId);
-    if (!d) return { name: "", cl: "#8E8E93", cd: "#8E8E93", fl: "#FFFFFF", fd: "#FFFFFF", sideLabel: "", leftText: "0", paidText: "", dueText: "", dueCls: "", hasNote: false, note: "", hasProg: false, progW: "0%", hasLog: false, log: [], canRepay: false, repayLabel: "", closeLabel: "", edit() {}, repay() {}, close() {}, remove() {} };
-    const isClosed = !s.debts.some(x => x.id === d.id), left = QL.debtLeft(d);
+    if (!d) return { name: "", cl: "#8E8E93", cd: "#8E8E93", fl: "#FFFFFF", fd: "#FFFFFF", sideLabel: "", leftText: "0", paidText: "", dueText: "", dueCls: "", hasNote: false, note: "", hasProg: false, progW: "0%", hasLog: false, canEdit: false, canTakeBack: false, log: [], canRepay: false, repayLabel: "", closeLabel: "", edit() {}, repay() {}, close() {}, remove() {} };
+    const isClosed = !s.debts.some(x => x.id === d.id), left = QL.debtLeft(d);   // a closed debt is history: read-only until restored
     const pal = this.palVis(d.mine ? "green" : "orange");
     const due = QL.debtDue(d, now);
     return Object.assign({
@@ -1134,7 +1343,7 @@ class Component extends DCLogic {
       paidText: c.money(d.paid || 0),
       dueText: due.kind === "none" ? t.noDue : this.dueText(d, c), dueCls: due.kind === "overdue" ? "tx-neg" : "",
       hasNote: !!d.note, note: d.note || "", hasProg: (d.paid || 0) > 0, progW: Math.round((d.paid || 0) / Math.max(1, d.sum) * 100) + "%",
-      hasLog: (d.log || []).length > 0,
+      hasLog: (d.log || []).length > 0, canEdit: !isClosed, canTakeBack: !isClosed,
       log: (d.log || []).map((lg, i) => ({ date: lg.date, sum: c.money(lg.sum), aria: t.removeRepay + ": " + lg.date, remove: () => this.removeRepayment(d.id, i) })),
       canRepay: !isClosed && left > 0, repayLabel: d.mine ? t.repayMine : t.repayOwe, closeLabel: isClosed ? t.restore : t.closeDebt,
       edit: () => this.openEntry({ mode: "debt", edit: d }),
@@ -1190,9 +1399,14 @@ class Component extends DCLogic {
       });
       out.who = f.who; out.setWho = e => this.setForm({ who: e.target.value });
       out.dueText = f.due ? QL.capitalize(QL.fmtDate(QL.parseYmd(f.due), lang, { day: "numeric", month: "long", year: "numeric" })) : t.noDue;
-      out.openDue = () => this.openLayer("when", { whenFor: "due", whMsg: "" });
+      out.openDue = () => {
+        // the sheet shows a date (a week ahead) when none is set: what is shown is what is saved
+        if (this.state.form && !this.state.form.due) this.setForm({ due: QL.ymd(QL.addDays(Date.now(), 7)) });
+        this.openLayer("when", { whenFor: "due", whMsg: "" });
+      };
       out.note = f.note; out.setNote = e => this.setForm({ note: e.target.value });
-      out.hint = !f.who.trim() ? t.hintDebtNoWho : !amt ? t.hintAmount : QL.fill(t.hintDebt, { side: sideName });
+      const paid = this.paidOf(f);
+      out.hint = !f.who.trim() ? t.hintDebtNoWho : !amt ? t.hintAmount : amt < paid ? QL.fill(t.errBelowPaid, { n: c.fmt(paid) }) : QL.fill(t.hintDebt, { side: sideName });
       saveLabel = t.saveDebt;
     } else if (f.mode === "repay") {
       const d = this.findDebt(f.debtId);
@@ -1226,3 +1440,4 @@ class Component extends DCLogic {
     return out;
   }
 }
+Component.blankData = blankData; Component.LOOK_DEFAULTS = LOOK_DEFAULTS; Component.DATA_KEYS = DATA_KEYS;

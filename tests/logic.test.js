@@ -60,7 +60,7 @@ test("legacy DD.MM -> timestamp with inferred year", () => {
   assert.equal(L.ymd(L.tsFromDdmm("30.09", NOW)), "2026-09-30");
   assert.equal(L.ymd(L.tsFromDdmm("08.10", NOW)), "2025-10-08", "future date means last year");
   assert.equal(L.tsFromDdmm("31.04", NOW), null);
-  assert.equal(L.tsFromDdmm("29.02", NOW), null, "2026 and 2025 are not leap years");
+  assert.equal(L.ymd(L.tsFromDdmm("29.02", NOW)), "2024-02-29", "2026 and 2025 are not leap years: the last 29 February was in 2024");
   assert.equal(L.tsFromDdmm("x", NOW), null);
   assert.equal(L.tsOfOp({ ts: 123, date: "01.01" }, NOW), 123, "own timestamp wins");
   assert.equal(L.ymd(L.tsOfOp({ date: "05.10" }, NOW)), "2026-10-05");
@@ -193,18 +193,71 @@ test("budgetStatus: pace, over, none", () => {
 
 test("balances never invent an opening balance", () => {
   const ops = [op(1, "06.10", "A", -1000, "cash"), op(2, "06.10", "B", 5000, "card"), op(3, "06.10", "C", -200, "card")];
-  const none = L.balances(undefined, undefined, ops);
+  const none = L.balances({}, ops, NOW);
   assert.equal(none.known, false);
   assert.equal(none.total, 0);
-  const some = L.balances(10000, undefined, ops);
+  const some = L.balances({ openCash: 10000 }, ops, NOW);
   assert.equal(some.cash, 9000);
   assert.equal(some.hasCard, false);
   assert.equal(some.total, 9000, "unknown card is not counted");
-  const both = L.balances(10000, 0, ops);
+  const both = L.balances({ openCash: 10000, openCard: 0 }, ops, NOW);
   assert.equal(both.card, 4800);
   assert.equal(both.total, 13800);
-  assert.equal(L.balances(0, 0, []).known, true, "an explicit zero is a known balance");
-  assert.equal(L.openingFor(20000, ops, "cash"), 21000, "so that opening + ops = 20000");
+  assert.equal(L.balances({ openCash: 0, openCard: 0 }, [], NOW).known, true, "an explicit zero is a known balance");
+});
+
+test("a typed balance stays what the person typed: only operations made since then move it", () => {
+  const typedAt = at(2026, 10, 6, 12, 0);
+  const st = { openCash: 5000, openCashAt: typedAt };
+  const before = op(1, "01.10", "A", -1000, "cash", { ts: at(2026, 10, 1, 9, 0) });    // earlier than the balance
+  const before2 = op(2, "03.10", "B", -500, "cash", { ts: at(2026, 10, 3, 9, 0) });
+  assert.equal(L.balances(st, [before, before2], NOW).cash, 5000, "older operations are already inside the typed amount");
+  // editing or deleting an old operation changes nothing
+  assert.equal(L.balances(st, [Object.assign({}, before, { sum: -1200 }), before2], NOW).cash, 5000);
+  assert.equal(L.balances(st, [before], NOW).cash, 5000);
+  // a forgotten operation logged now with an earlier date is not counted twice either
+  assert.equal(L.balances(st, [op(3, "05.10", "C", -300, "cash", { ts: at(2026, 10, 5, 20, 0) })], NOW).cash, 5000);
+  // operations since the balance was typed do count, income included
+  const later = [op(4, "06.10", "D", -400, "cash", { ts: at(2026, 10, 6, 15, 0) }), op(5, "06.10", "E", 150, "cash", { ts: at(2026, 10, 6, 15, 10) })];
+  assert.equal(L.balances(st, later, NOW).cash, 4750);
+  assert.equal(L.balances(st, later, NOW).card, 0, "the card has no balance and no operations here");
+  // no timestamp stored (a balance saved before this field existed): every operation counts, as before
+  assert.equal(L.balances({ openCash: 5000 }, [before], NOW).cash, 4000);
+  // legacy operations (DD.MM only) are placed by their date
+  assert.equal(L.balances(st, [op(6, "01.10", "F", -9, "cash")], NOW).cash, 5000);
+});
+
+test("restoreById puts back only the records an action touched", () => {
+  const before = [{ id: 1, v: "a" }, { id: 2, v: "b" }, { id: 3, v: "c" }];
+  // action changed 2 and removed 3; meanwhile 9 arrived from another device and 1 was edited
+  const current = [{ id: 9, v: "new" }, { id: 1, v: "a2" }, { id: 2, v: "B" }];
+  const back = L.restoreById(current, before, [2, 3]);
+  assert.deepEqual(back.map(x => x.id), [9, 1, 3, 2], "a record that still exists is restored in place, a deleted one returns to its old index");
+  assert.deepEqual(back.find(x => x.id === 9), { id: 9, v: "new" }, "the record that arrived meanwhile survives");
+  assert.equal(back.find(x => x.id === 1).v, "a2", "so does the edit of an untouched record");
+  assert.equal(back.find(x => x.id === 2).v, "b");
+  assert.equal(back.find(x => x.id === 3).v, "c");
+  // a record that did not exist before is removed again
+  assert.deepEqual(L.restoreById([{ id: 5, v: "x" }, { id: 1, v: "a" }], [{ id: 1, v: "a" }], [5]).map(x => x.id), [1]);
+});
+
+test("a category called 'constructor' is an ordinary key", () => {
+  const ops = [op(1, "06.10", "constructor", -700), op(2, "06.10", "__proto__", -300), op(3, "06.10", "Кафе", -100)];
+  const rows = L.byCategory(ops);
+  assert.deepEqual(rows.map(r => r.cat + ":" + r.sum), ["constructor:700", "__proto__:300", "Кафе:100"]);
+  const used = ops.concat([op(4, "06.10", "constructor", -50)]);
+  assert.deepEqual(L.rankCategories(["Кафе", "constructor"], used, NOW), ["constructor", "Кафе"], "the more used category first, however it is called");
+  const look = L.catLook("constructor", {}, {});
+  assert.equal(typeof look.icon, "string");
+  assert.match(look.l, /^#[0-9A-F]{6}$/);
+});
+
+test("29 February without a year is found in the last leap year, not 'today'", () => {
+  const ts = L.tsFromDdmm("29.02", at(2026, 1, 20, 12, 0));
+  assert.equal(new Date(ts).getFullYear(), 2024);
+  assert.equal(new Date(ts).getMonth(), 1);
+  assert.equal(new Date(ts).getDate(), 29);
+  assert.equal(L.tsFromDdmm("31.04", at(2026, 5, 1, 12, 0)), null, "a date that never exists stays invalid");
 });
 
 test("debts: due status, repayment clamp and auto-close", () => {
@@ -297,7 +350,8 @@ test("sanitizeState: the gate for outside data", () => {
   assert.equal(L.sanitizeState(null, NOW), null);
   assert.equal(L.sanitizeState([], NOW), null);
   assert.equal(L.sanitizeState({ ops: "x", debts: [] }, NOW), null);
-  assert.equal(L.sanitizeState({ ops: new Array(20001).fill({ sum: 1 }), debts: [] }, NOW), null, "too many ops");
+  assert.equal(L.sanitizeState({ ops: new Array(50001).fill({ sum: 1 }), debts: [] }, NOW).ops.length, 50000, "beyond the cap the oldest are cut, the rest is kept");
+  assert.equal(L.sanitizeState({ ops: [{ id: 1, date: "01.01", cat: "A", sum: 1e308, pay: "card" }, { id: 2, date: "01.01", cat: "A", sum: -1e9, pay: "card" }, { id: 3, date: "01.01", cat: "A", sum: -999999999, pay: "card" }], debts: [{ id: 4, who: "x", sum: 1e12 }] }, NOW).ops.map(o => o.id).join(), "3", "absurd amounts are dropped");
   const s = L.sanitizeState({
     ops: [
       { id: 1, date: "06.10", cat: "Кафе", note: "x".repeat(500), sum: -1200.4, pay: "wire" },

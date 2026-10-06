@@ -46,9 +46,11 @@ function load(opts) {
   const unref = t => { if (t && t.unref) t.unref(); return t; };
   const setTimeoutU = (f, ms) => unref(setTimeout(f, ms));
   const setIntervalU = (f, ms) => unref(setInterval(f, ms));
-  const factory = new Function("DCLogic", "StreamableLogic", "React", "window", "document", "localStorage", "navigator", "location", "history", "firebase", "QaltaSync", "setTimeout", "setInterval",
+  // a file "read" gives back the text the test put in file.text
+  class FileReader { readAsText(f) { setTimeout(() => { this.result = f.text; if (this.onload) this.onload(); }, 0); } }
+  const factory = new Function("DCLogic", "StreamableLogic", "React", "window", "document", "localStorage", "navigator", "location", "history", "firebase", "QaltaSync", "setTimeout", "setInterval", "FileReader",
     src + "\n;return { Component: Component, QL: QL, I18N: I18N, ICONS: ICONS };");
-  const mod = factory(DCLogic, DCLogic, {}, window, document, storage, navigator, location, history, undefined, undefined, setTimeoutU, setIntervalU);
+  const mod = factory(DCLogic, DCLogic, {}, window, document, storage, navigator, location, history, undefined, undefined, setTimeoutU, setIntervalU, FileReader);
   const c = new mod.Component({});
   if (opts.mount !== false) { c.componentDidMount(); }
   return { c, QL: mod.QL, I18N: mod.I18N, ICONS: mod.ICONS, storage, calls, listeners, document, window, history, DCLogic, Component: mod.Component, src };
