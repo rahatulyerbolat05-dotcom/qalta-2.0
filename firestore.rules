@@ -1,39 +1,75 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in user can only read/write/delete their own document, and
-    // only with the shape this app actually writes. Firestore itself caps a
-    // document at 1 MiB, so no size() check is needed (request.resource has no
-    // size(); using it would reject every write).
+    // Data layout (see sync-engine.js):
+    //   users/{uid}/ops/{id}        one document per operation
+    //   users/{uid}/debts/{id}      one document per debt (open and closed)
+    //   users/{uid}/meta/settings   language, accent, skin, categories
+    // Every document carries _u (update stamp) and _d (device id); a deleted
+    // record is a tombstone {_del:true,_u,_d}. Firestore itself caps a document
+    // at 1 MiB, so no size() check (request.resource has no size()).
     match /users/{uid} {
       function isOwner() {
         return request.auth != null && request.auth.uid == uid;
       }
+      function stamps(d) {
+        return d._u is number && d._d is string && d._d.size() <= 64;
+      }
+      function tombstone(d) {
+        return d.keys().hasOnly(['_del', '_u', '_d']) && d._del == true && stamps(d);
+      }
 
-      function validDoc(d) {
-        return d.keys().hasOnly([
-                 'ops', 'debts', 'closed', 'eCats', 'iCats',
-                 'hex', 'skin', 'set', 'lang', 'light',
-                 'catColors', 'catSizes', 'lastSync'
-               ])
-          && d.ops is list && d.ops.size() <= 20000
-          && d.debts is list && d.debts.size() <= 5000
-          && (!('closed' in d) || (d.closed is list && d.closed.size() <= 5000))
-          && (!('eCats' in d) || (d.eCats is list && d.eCats.size() <= 200))
-          && (!('iCats' in d) || (d.iCats is list && d.iCats.size() <= 200))
+      function validOp(d) {
+        return tombstone(d) || (
+          d.keys().hasOnly(['id', 'date', 'cat', 'note', 'sum', 'pay', '_u', '_d'])
+          && d.id is number && d.date is string && d.date.size() <= 5
+          && d.cat is string && d.cat.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && d.sum is number && d.pay in ['cash', 'card']
+          && stamps(d));
+      }
+
+      // Debts are written as field patches (merge), so only the final merged
+      // document is validated; the optional fields may be absent.
+      function validDebt(d) {
+        return tombstone(d) || (
+          d.keys().hasOnly(['id', 'who', 'note', 'sum', 'mine', 'paid', 'log', 'closed', 'closedAt', 'reason', '_u', '_d'])
+          && d.id is number && d.who is string && d.who.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && d.sum is number && d.sum >= 0 && d.mine is bool
+          && (!('paid' in d) || d.paid is number)
+          && (!('log' in d) || (d.log is list && d.log.size() <= 500))
+          && (!('closed' in d) || d.closed is bool)
+          && (!('closedAt' in d) || (d.closedAt is string && d.closedAt.size() <= 10))
+          && (!('reason' in d) || (d.reason is string && d.reason.size() <= 120))
+          && stamps(d));
+      }
+
+      function validSettings(d) {
+        return d.keys().hasOnly(['hex', 'skin', 'set', 'lang', 'eCats', 'iCats', 'catColors', 'catSizes', '_u', '_d'])
           && (!('hex' in d) || (d.hex is string && d.hex.size() <= 9))
           && (!('skin' in d) || (d.skin is int && d.skin >= 0 && d.skin <= 2))
           && (!('set' in d) || (d.set is int && d.set >= 0 && d.set <= 4))
           && (!('lang' in d) || d.lang in ['ru', 'kz', 'en'])
-          && (!('light' in d) || d.light is bool)
+          && (!('eCats' in d) || (d.eCats is list && d.eCats.size() <= 200))
+          && (!('iCats' in d) || (d.iCats is list && d.iCats.size() <= 200))
           && (!('catColors' in d) || d.catColors is map)
           && (!('catSizes' in d) || d.catSizes is map)
-          && (!('lastSync' in d) || d.lastSync == null || (d.lastSync is string && d.lastSync.size() <= 10));
+          && stamps(d);
       }
 
-      allow read: if isOwner();
-      allow create, update: if isOwner() && validDoc(request.resource.data);
-      allow delete: if isOwner();
+      match /ops/{id} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && validOp(request.resource.data);
+      }
+      match /debts/{id} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && validDebt(request.resource.data);
+      }
+      match /meta/{docId} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && docId == 'settings' && validSettings(request.resource.data);
+      }
     }
   }
 }
