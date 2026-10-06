@@ -1,26 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in user can only read/write their own document, and only
-    // with the shape this app actually writes. Ownership alone isn't enough:
-    // without the shape/size checks, an authenticated client could still
-    // write an arbitrarily large or malformed blob to their own doc, which
-    // costs them storage/quota and could crash the app on next read.
+    // Each signed-in user can only read/write/delete their own document, and
+    // only with the shape this app actually writes. Firestore itself caps a
+    // document at 1 MiB, so no size() check is needed (request.resource has no
+    // size(); using it would reject every write).
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
 
-      allow write: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly([
-             'ops', 'debts', 'closed', 'eCats', 'iCats',
-             'hex', 'skin', 'set', 'lang', 'light',
-             'catColors', 'catSizes', 'lastSync'
-           ])
-        && request.resource.data.ops is list
-        && request.resource.data.ops.size() < 5000
-        && request.resource.data.debts is list
-        && request.resource.data.debts.size() < 1000
-        && request.resource.size() < 1 * 1024 * 1024; // 1 MiB document cap
+      function validDoc(d) {
+        return d.keys().hasOnly([
+                 'ops', 'debts', 'closed', 'eCats', 'iCats',
+                 'hex', 'skin', 'set', 'lang', 'light',
+                 'catColors', 'catSizes', 'lastSync'
+               ])
+          && d.ops is list && d.ops.size() <= 20000
+          && d.debts is list && d.debts.size() <= 5000
+          && (!('closed' in d) || (d.closed is list && d.closed.size() <= 5000))
+          && (!('eCats' in d) || (d.eCats is list && d.eCats.size() <= 200))
+          && (!('iCats' in d) || (d.iCats is list && d.iCats.size() <= 200))
+          && (!('hex' in d) || (d.hex is string && d.hex.size() <= 9))
+          && (!('skin' in d) || (d.skin is int && d.skin >= 0 && d.skin <= 2))
+          && (!('set' in d) || (d.set is int && d.set >= 0 && d.set <= 4))
+          && (!('lang' in d) || d.lang in ['ru', 'kz', 'en'])
+          && (!('light' in d) || d.light is bool)
+          && (!('catColors' in d) || d.catColors is map)
+          && (!('catSizes' in d) || d.catSizes is map)
+          && (!('lastSync' in d) || d.lastSync == null || (d.lastSync is string && d.lastSync.size() <= 10));
+      }
+
+      allow read: if isOwner();
+      allow create, update: if isOwner() && validDoc(request.resource.data);
+      allow delete: if isOwner();
     }
   }
 }
