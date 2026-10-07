@@ -15,4 +15,4 @@ window.QALTA_FIREBASE_CONFIG = {
 
 // Telegram bot username (without @), public like the config above. Empty: the "Telegram bot" row is hidden.
 // Set it after creating the bot with @BotFather and deploying bot/ (see bot/README.md).
-window.QALTA_TELEGRAM_BOT = "";
+window.QALTA_TELEGRAM_BOT = "Qalta_app_bot";
