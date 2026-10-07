@@ -89,5 +89,20 @@ service cloud.firestore {
         allow create, update: if isOwner() && docId == 'settings' && validSettings(request.resource.data);
       }
     }
+
+    // Telegram bot link (see bot/core.js): the signed-in app creates a one-time code for its own uid, valid for
+    // at most 30 minutes; nobody can read, change or list codes from a client — only the bot's service account
+    // (which is not subject to these rules) reads and deletes them. botUsers/* (the bot's state) has no client
+    // access at all: there is no match for it.
+    match /botLinks/{code} {
+      allow create: if request.auth != null
+        && code.size() >= 16 && code.size() <= 64 && code.matches('^[A-Za-z0-9_-]+$')
+        && request.resource.data.keys().hasOnly(['uid', 'exp', 'tz'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.exp is number
+        && request.resource.data.exp > request.time.toMillis()
+        && request.resource.data.exp <= request.time.toMillis() + 1800000
+        && request.resource.data.tz is string && request.resource.data.tz.size() <= 64;
+    }
   }
 }

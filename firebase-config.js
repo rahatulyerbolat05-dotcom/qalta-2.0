@@ -12,3 +12,7 @@ window.QALTA_FIREBASE_CONFIG = {
   messagingSenderId: "50557771129",
   appId: "1:50557771129:web:1b97cbc3e04ac5280123a8"
 };
+
+// Telegram bot username (without @), public like the config above. Empty: the "Telegram bot" row is hidden.
+// Set it after creating the bot with @BotFather and deploying bot/ (see bot/README.md).
+window.QALTA_TELEGRAM_BOT = "";

@@ -486,6 +486,28 @@ class Component extends DCLogic {
     if (f.editId || f.mode === "budget" || f.mode === "opening") return f.orig !== undefined && this.formSig(f) !== f.orig;
     return !!(f.amount || f.zero || (f.note || "").trim() || (f.who || "").trim() || f.due || (f.phrase || "").trim());
   }
+  // Telegram bot: a one-time code (120 random bits, 15 minutes) for this signed-in account, then telegram.me/<bot>?start=<code>.
+  // The bot reads and deletes the code (bot/core.js); firestore.rules let a client only create one, for its own uid.
+  tgConnect = () => {
+    const bot = window.QALTA_TELEGRAM_BOT, user = this._fbAuth && this._fbAuth.currentUser, t = this.t();
+    if (!bot || !user || !this._fbDb) return;
+    const bytes = new Uint8Array(15);
+    crypto.getRandomValues(bytes);
+    const code = btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    let tz = "Asia/Almaty";
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) {}
+    const url = "https://telegram.me/" + bot + "?start=" + code;
+    this._fbDb.collection("botLinks").doc(code).set({ uid: user.uid, exp: Date.now() + 15 * 60000, tz })
+      .then(() => {
+        this.showToast(t.tgOpened);
+        // a window opened after waiting may be blocked: then go there in this tab (the data stays on the device)
+        let w = null;
+        try { w = window.open(url, "_blank", "noopener"); } catch (e) {}
+        if (!w) location.href = url;
+      })
+      .catch(err => { console.error("[qalta] bot link not saved", err); this.showToast(t.tgFailed); });
+  };
+
   // A field set by hand is the person's: the one-line phrase no longer changes it.
   setForm(patch) {
     this.setState(st => {
@@ -1108,7 +1130,8 @@ class Component extends DCLogic {
       fbSignedIn: !!s.fbUser, fbSignedOut: !s.fbUser,
       fbUserName: s.fbUser ? QL.fill(t.signedInAs, { name: s.fbUser.name || s.fbUser.email }) : "",
       fbStatusLabel: s.fbStatus === "saving" ? t.statusSaving : s.fbStatus === "synced" ? t.statusSynced : s.fbStatus === "loading" ? t.statusLoading : s.fbStatus === "offline" ? t.statusOffline : s.fbStatus === "error" ? t.statusError : "",
-      fbSignIn: this.fbSignIn, fbSignOut: this.fbSignOut
+      fbSignIn: this.fbSignIn, fbSignOut: this.fbSignOut,
+      tgEnabled: !!(s.fbUser && typeof window.QALTA_TELEGRAM_BOT === "string" && /^[A-Za-z0-9_]{5,32}$/.test(window.QALTA_TELEGRAM_BOT)), tgConnect: this.tgConnect
     }, home);
     if (s.tab === "history") Object.assign(out, this.historyVals(c));
     if (s.tab === "debts") Object.assign(out, this.debtsVals(c));

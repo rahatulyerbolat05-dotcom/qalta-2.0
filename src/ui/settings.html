@@ -68,6 +68,13 @@
 <span class="grow"><span class="t-body ell db">{{ fbUserName }}</span><span class="t-sub muted db" role="status" aria-live="polite">{{ fbStatusLabel }}</span></span>
 <button type="button" class="q-link" sc-camel-on-click="{{ fbSignOut }}">{{ t.signOut }}</button>
 </div>
+<sc-if value="{{ tgEnabled }}">
+<div class="q-row tile">
+<span class="q-tile cc" style="--cl:#007AFF;--cd:#0A84FF;--fl:#FFFFFF;--fd:#FFFFFF"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:sparkle:f%%"></path></svg></span>
+<span class="grow"><span class="t-body db">{{ t.tgBot }}</span><span class="t-sub muted db">{{ t.tgBotSub }}</span></span>
+<button type="button" class="q-link" sc-camel-on-click="{{ tgConnect }}">{{ t.tgConnect }}</button>
+</div>
+</sc-if>
 </div>
 </sc-if>
 <sc-if value="{{ fbSignedOut }}">

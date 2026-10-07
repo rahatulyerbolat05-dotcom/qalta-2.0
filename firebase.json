@@ -5,6 +5,7 @@
       "firebase.json",
       "src/**",
       "tools/**",
+      "bot/**",
       "package.json",
       "firestore.rules",
       "**/.*",
