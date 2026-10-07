@@ -30,7 +30,7 @@
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },
       {
-        "source": "/@(index.html|sw.js|sync-engine.js|firebase-config.js|manifest.json)",
+        "source": "/@(index.html|sw.js|sync-engine.js|firebase-config.js|manifest.json|cat-model.json)",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },
       {

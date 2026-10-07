@@ -69,6 +69,19 @@ module.exports = async (b) => {
   await key("z", "KeyZ", 2); await b.wait(300);
   ok(!(await text()).includes("Записано"), "Ctrl+Z undoes the last action");
 
+  // 2b. the one-line phrase with a real keyboard: it fills amount and category, Enter saves (the network file is
+  //     fetched when the sheet opens)
+  await mouseTap(".q-fab"); await b.wait(600);
+  await mouseTap("#layer-entry .q-phrase-in"); await b.wait(150);
+  await b.send("Input.insertText", { text: "кофе 2800" }); await b.wait(300);
+  const phHint = await b.ev("document.querySelector('#layer-entry .q-hint').innerText");
+  const phAmt = await b.ev("document.querySelector('#layer-entry .q-amount').innerText");
+  ok(/Кафе/.test(phHint) && /2\s800/.test(phAmt), "a phrase typed on a real keyboard fills amount and category (" + phHint + ", " + phAmt.trim() + ")");
+  await key("Enter", "Enter"); await b.wait(400);
+  ok(!(await exists("#layer-entry")) && /Записано: Кафе/.test(await text()), "Enter in the phrase saves the operation");
+  await key("z", "KeyZ", 2); await b.wait(300);
+  ok(await b.ev("fetch('cat-model.json').then(r => r.ok)"), "the category network file is served next to the page");
+
   // 3. focus goes back to the control that opened the sheet
   await b.ev("document.querySelector('.q-fab').focus()");
   await b.ev("document.querySelector('.q-fab').click()"); await b.wait(350);

@@ -36,6 +36,13 @@
 </div>
 </sc-if>
 
+<sc-if value="{{ en.showPhrase }}">
+<label class="q-search q-phrase">
+<svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:sparkle:f%%"></path></svg>
+<input type="text" class="q-phrase-in" value="{{ en.phrase }}" sc-camel-on-change="{{ en.setPhrase }}" placeholder="{{ t.phrasePh }}" aria-label="{{ t.phraseAria }}" maxlength="200" autocomplete="off" spellcheck="false" sc-camel-enter-key-hint="done">
+</label>
+</sc-if>
+
 <div class="q-group">
 <sc-if value="{{ en.showFill }}">
 <button type="button" class="q-row" sc-camel-on-click="{{ en.fill }}"><span class="t-body">{{ en.fillText }}</span><span class="grow"></span><svg class="q-ico chev" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:caret-right:b%%"></path></svg></button>

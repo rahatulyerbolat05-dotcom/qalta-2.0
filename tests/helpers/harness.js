@@ -48,9 +48,10 @@ function load(opts) {
   const setIntervalU = (f, ms) => unref(setInterval(f, ms));
   // a file "read" gives back the text the test put in file.text
   class FileReader { readAsText(f) { setTimeout(() => { this.result = f.text; if (this.onload) this.onload(); }, 0); } }
-  const factory = new Function("DCLogic", "StreamableLogic", "React", "window", "document", "localStorage", "navigator", "location", "history", "firebase", "QaltaSync", "setTimeout", "setInterval", "FileReader",
+  // no network: the category model is handed to the component by the test (c._catModel), never fetched
+  const factory = new Function("DCLogic", "StreamableLogic", "React", "window", "document", "localStorage", "navigator", "location", "history", "firebase", "QaltaSync", "setTimeout", "setInterval", "FileReader", "fetch",
     src + "\n;return { Component: Component, QL: QL, I18N: I18N, ICONS: ICONS };");
-  const mod = factory(DCLogic, DCLogic, {}, window, document, storage, navigator, location, history, undefined, undefined, setTimeoutU, setIntervalU, FileReader);
+  const mod = factory(DCLogic, DCLogic, {}, window, document, storage, navigator, location, history, undefined, undefined, setTimeoutU, setIntervalU, FileReader, undefined);
   const c = new mod.Component({});
   if (opts.mount !== false) { c.componentDidMount(); }
   return { c, QL: mod.QL, I18N: mod.I18N, ICONS: mod.ICONS, storage, calls, listeners, document, window, history, DCLogic, Component: mod.Component, src };

@@ -391,6 +391,10 @@ class Component extends DCLogic {
     if ((e.key === "Enter" || e.key === " ") && el && el.getAttribute && el.getAttribute("role") === "button" && el.tabIndex >= 0) {
       e.preventDefault(); el.click(); return;
     }
+    // Enter in the one-line phrase saves, as sending a message would (the usual checks still apply)
+    if (e.key === "Enter" && !e.isComposing && this.topKind() === "entry" && el && el.classList && el.classList.contains("q-phrase-in")) {
+      e.preventDefault(); this.saveEntry(); return;
+    }
     if (this.topKind() === "entry" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
       if (/^[0-9]$/.test(e.key)) { e.preventDefault(); this.pressKey(e.key); }
       else if (e.key === "Backspace") { e.preventDefault(); this.pressKey("del"); }
@@ -448,7 +452,13 @@ class Component extends DCLogic {
         const op = o.edit;
         f.editId = op.id; f.dir = op.sum > 0 ? "income" : "expense"; f.amount = String(Math.abs(op.sum));
         f.cat = op.cat; f.pay = op.pay; f.ts = QL.tsOfOp(op, now); f.note = op.note || "";
-      } else { f.dir = o.dir || "expense"; f.cat = o.cat || null; }
+      } else {
+        f.dir = o.dir || "expense"; f.cat = o.cat || null;
+        // one-line entry: what the sheet opened with, what was set by hand since, what the phrase filled in
+        f.phrase = ""; f.touched = {}; f.auto = {}; f.sugg = null;
+        f.base = { amount: "", dir: f.dir, cat: f.cat, pay: f.pay, ts: null, note: "" };
+        this.loadCatModel();
+      }
     } else if (f.mode === "debt") {
       if (o.edit) {
         const d = o.edit;
@@ -474,9 +484,80 @@ class Component extends DCLogic {
     const f = this.state.form;
     if (!f) return false;
     if (f.editId || f.mode === "budget" || f.mode === "opening") return f.orig !== undefined && this.formSig(f) !== f.orig;
-    return !!(f.amount || f.zero || (f.note || "").trim() || (f.who || "").trim() || f.due);
+    return !!(f.amount || f.zero || (f.note || "").trim() || (f.who || "").trim() || f.due || (f.phrase || "").trim());
   }
-  setForm(patch) { this.setState(st => ({ form: Object.assign({}, st.form, patch, { showErr: false, msg: "" }) })); }
+  // A field set by hand is the person's: the one-line phrase no longer changes it.
+  setForm(patch) {
+    this.setState(st => {
+      const f = st.form, extra = { showErr: false, msg: "" };
+      if (f && f.touched) {
+        extra.touched = Object.assign({}, f.touched);
+        extra.auto = Object.assign({}, f.auto);
+        Object.keys(patch).forEach(k => { extra.touched[k] = true; extra.auto[k] = false; });
+      }
+      return { form: Object.assign({}, f, patch, extra) };
+    });
+  }
+
+  // ── one-line entry ("кофе 2800", "вчера такси 1 500 наличными", "+420 000 зарплата") ──
+  // Fields not set by hand in this sheet follow the phrase: what it says, or what the sheet opened with when
+  // it says nothing (so editing the phrase never leaves stale values behind). Saving stays the person's step.
+  setPhrase(text) {
+    const f = this.state.form;
+    if (!f || f.mode !== "op" || f.editId || !f.base) return;
+    const now = Date.now(), t = this.t(), phrase = String(text == null ? "" : text).slice(0, 200);
+    const p = QP.parsePhrase(phrase, now), when = QP.phraseTs(p, now), touched = f.touched || {}, base = f.base;
+    const auto = {}, next = { phrase, showErr: false, msg: "" };
+    const set = (k, fromPhrase, v) => { if (touched[k]) return; next[k] = fromPhrase ? v : base[k]; auto[k] = !!fromPhrase; };
+    set("amount", p.amount > 0, String(p.amount));
+    if (!touched.amount) next.zero = false;
+    set("ts", when.ts != null, when.ts);
+    set("pay", !!p.pay, p.pay);
+    if (p.tooBig) next.msg = t.errTooBig;
+    else if (when.future) next.msg = t.hintFuturePhrase;
+    // side and category: an explicit sign decides the side; otherwise the suggestion may move it ("зп" -> income)
+    let dir = touched.dir ? f.dir : (p.dir || base.dir);
+    const g = CAT.suggest({ text: p.rest, dir, cats: { expense: this.cats("expense"), income: this.cats("income") }, model: this._catModel, mem: this.catMemory(), alias: n => this.catAliases(n) });
+    if (!touched.dir && !p.dir && g.cat && g.dir !== dir) dir = g.dir;
+    if (!touched.dir) { next.dir = dir; auto.dir = dir !== base.dir; }
+    const inList = c => !!c && this.cats(dir).indexOf(c) >= 0;
+    if (!touched.cat) {
+      const pickCat = g.cat && g.dir === dir ? g.cat : null;
+      next.cat = pickCat || (inList(base.cat) ? base.cat : null);
+      auto.cat = !!pickCat;
+    } else if (!inList(f.cat)) next.cat = null;
+    // the description becomes the note, unless it only names the category ("такси 1500")
+    const restWords = CAT.words(p.rest), cat = next.cat !== undefined ? next.cat : f.cat;
+    const onlyName = restWords.length === 1 && !!cat && (CAT.namesCategory(restWords, cat) || this.catAliases(cat).some(a => CAT.namesCategory(restWords, a)));
+    set("note", !!p.rest && !onlyName, p.rest);
+    next.sugg = g.dir === dir ? g.ranked : [];
+    next.auto = auto;
+    this.setState({ form: Object.assign({}, f, next) });
+  }
+  catAliases(name) {
+    const r = I18N.CAT_TR && I18N.CAT_TR[name];
+    return r ? Object.keys(r).map(k => r[k]).filter(v => v && v !== name) : [];
+  }
+  // index of past descriptions, rebuilt only when the list of operations changes
+  catMemory() {
+    const ops = this.state.ops;
+    if (this._catMemOps !== ops) { this._catMemOps = ops; this._catMem = CAT.memory(ops); }
+    return this._catMem;
+  }
+  // The category network (cat-model.json, ~100 KB) is fetched the first time a sheet opens, not at start-up;
+  // the offline shell keeps it. Without it, suggestions come from history and category names only.
+  loadCatModel() {
+    if (this._catModel || this._catLoading || typeof fetch !== "function") return;
+    this._catLoading = true;
+    fetch("cat-model.json")
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+      .then(txt => {
+        this._catModel = CAT.load(txt);
+        const f = this.state.form;
+        if (f && f.phrase) this.setPhrase(f.phrase);
+      })
+      .catch(e => { this._catLoading = false; console.warn("[qalta] category model not loaded; suggestions use history and names only", e); });
+  }
 
   pressKey(key) {
     const f = this.state.form;
@@ -494,7 +575,8 @@ class Component extends DCLogic {
       const d = this.state.debts.find(x => x.id === f.debtId);
       if (d && QL.amountFromDigits(amount) > QL.debtLeft(d)) amount = String(QL.debtLeft(d));
     }
-    this.setState({ form: Object.assign({}, f, { amount, zero, showErr: false, msg: "" }) });
+    const own = f.touched ? { touched: Object.assign({}, f.touched, { amount: true }), auto: Object.assign({}, f.auto, { amount: false }) } : {};
+    this.setState({ form: Object.assign({}, f, { amount, zero, showErr: false, msg: "" }, own) });
     this.speakAmount();
   }
   // A screen reader hears the amount once typing pauses, not after every key (the keys name themselves).
@@ -1398,7 +1480,8 @@ class Component extends DCLogic {
     const s = this.state, f = s.form, t = c.t, now = c.now, lang = c.lang;
     const amt = QL.amountFromDigits(f.amount);
     const valid = this.entryValid(f);
-    const out = { hasSides: false, noSides: true, sides: [], showFill: false, fillText: "", fill() {}, showCats: false, showPay: false, showWhen: false, showNote: false, showWho: false, showDue: false, showCatBadge: false, showDelete: false, deleteLabel: "", chips: [], pays: [], keys: [], hintCls: "" };
+    const out = { hasSides: false, noSides: true, sides: [], showFill: false, fillText: "", fill() {}, showCats: false, showPay: false, showWhen: false, showNote: false, showWho: false, showDue: false, showCatBadge: false, showDelete: false, deleteLabel: "", chips: [], pays: [], keys: [], hintCls: "",
+      showPhrase: false, phrase: "", setPhrase() {} };
     let look, title, saveLabel;
     const tintLook = { cl: c.tint, cd: c.tint, fl: c.onTint, fd: c.onTint };
     if (f.mode === "op") {
@@ -1412,7 +1495,9 @@ class Component extends DCLogic {
         showCatBadge: !!f.cat, catName: f.cat ? c.trCat(f.cat) : "", catD: f.cat ? this.vis(f.cat).d : "",
         showCats: true, showPay: true, showWhen: true, showNote: true
       });
-      const ranked = QL.rankCategories(list, s.ops.filter(o => (f.dir === "income" ? o.sum > 0 : o.sum < 0)), now);
+      let ranked = QL.rankCategories(list, s.ops.filter(o => (f.dir === "income" ? o.sum > 0 : o.sum < 0)), now);
+      // what the phrase suggests comes first; the usual order fills the rest
+      if (f.sugg && f.sugg.length) ranked = f.sugg.filter(n => list.indexOf(n) >= 0).concat(ranked.filter(n => f.sugg.indexOf(n) < 0));
       let top = ranked.slice(0, 5);
       if (f.cat && top.indexOf(f.cat) < 0) top = [f.cat].concat(top.slice(0, 4));
       out.chips = top.map(n => Object.assign({ name: c.trCat(n), on: f.cat === n, cls: f.cat === n ? "on" : "", pick: () => this.setForm({ cat: n }) }, this.vis(n)));
@@ -1423,7 +1508,11 @@ class Component extends DCLogic {
       out.whenText = f.ts == null ? t.today : QL.fill(t.atTime, { date: QL.dayLabel(ts, now, lang, { today: t.today, yesterday: t.yesterday }), time: QL.hhmm(ts) });
       out.openWhen = () => this.openLayer("when", { whenFor: "op", whMsg: "" });
       out.note = f.note; out.setNote = e => this.setForm({ note: e.target.value });
-      out.hint = f.msg ? f.msg : !amt ? t.hintAmount : !f.cat ? QL.fill(t.hintOpNoCat, { side: sideName }) : QL.fill(t.hintOp, { side: sideName, cat: c.trCat(f.cat) });
+      out.hint = f.msg ? f.msg : !amt ? t.hintAmount : !f.cat ? QL.fill(t.hintOpNoCat, { side: sideName })
+        : QL.fill(f.auto && f.auto.cat ? t.hintOpAuto : t.hintOp, { side: sideName, cat: c.trCat(f.cat) });
+      out.showPhrase = !f.editId;
+      out.phrase = f.phrase || "";
+      out.setPhrase = e => this.setPhrase(e.target.value);
       saveLabel = f.editId ? t.saveEdit : f.dir === "income" ? t.saveIncome : t.saveExpense;
       if (f.editId) {
         out.showDelete = true; out.deleteLabel = t.delete;

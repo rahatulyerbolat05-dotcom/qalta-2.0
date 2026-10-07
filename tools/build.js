@@ -40,7 +40,7 @@ function version() {
 }
 
 // The offline shell's cache name follows the files it serves, so a release never reuses an old cache.
-const SHELL_FILES = ["index.html", "sync-engine.js", "firebase-config.js", "manifest.json"];
+const SHELL_FILES = ["index.html", "sync-engine.js", "firebase-config.js", "manifest.json", "cat-model.json"];
 function shellHash() {
   const h = crypto.createHash("sha1");
   SHELL_FILES.forEach(f => { h.update(f + "\n" + lf(fs.readFileSync(path.join(ROOT, f), "utf8")) + "\n"); });
@@ -55,6 +55,7 @@ function stampServiceWorker() {
 
 function buildScript() {
   return wrapModule("QL", read("logic.js")) + wrapModule("I18N", read("i18n.js")) + wrapModule("ICONS", read("icons.js")) +
+    wrapModule("QP", read("parse.js")) + wrapModule("CAT", read("cat.js")) +
     "const BUILD = " + JSON.stringify(version()) + ";\n" + read("component.js");
 }
 
