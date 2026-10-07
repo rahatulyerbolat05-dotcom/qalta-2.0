@@ -414,3 +414,18 @@ test("the data identity is part of what the sync engine sees, but never of what 
   assert.equal("gen" in Sync.toEntities(c.state)["meta/settings"], false);
   assert.equal(Sync.SETTINGS_KEYS.indexOf("gen"), -1);
 });
+
+// ───────────────────────────── contrast of coloured surfaces ─────────────────────────────
+
+test("every coloured surface that carries text reads at 4.5:1 in both appearances", () => {
+  const h = app(), c = h.c, QL = h.QL;
+  const check = (what, v) => {
+    assert.ok(QL.contrast(v.fl, v.cl) >= 4.5, what + " (light) " + v.fl + " on " + v.cl + " = " + QL.contrast(v.fl, v.cl).toFixed(2));
+    assert.ok(QL.contrast(v.fd, v.cd) >= 4.5, what + " (dark) " + v.fd + " on " + v.cd + " = " + QL.contrast(v.fd, v.cd).toFixed(2));
+  };
+  QL.PALETTE.forEach(p => check("palette " + p.id, c.palVis(p.id)));
+  QL.DEFAULT_CATS.expense.concat(QL.DEFAULT_CATS.income).forEach(n => check("category " + n, c.vis(n)));
+  ["Айдос", "Мадина", "Zhanna", "Ә", "constructor"].forEach(n => check("avatar " + n, c.palFor(n)));
+  c.setState({ catColors: { "Кафе": "#FF3B30", "Дом": "#0A84FF", "Спорт": "#FFFF00" } });
+  ["Кафе", "Дом", "Спорт"].forEach(n => check("custom " + n, c.vis(n)));
+});

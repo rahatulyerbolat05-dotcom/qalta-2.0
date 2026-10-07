@@ -61,3 +61,39 @@ test("i18n: every default category has a translation and word forms exist", () =
   });
   ["day", "time"].forEach(f => ["ru", "kz", "en"].forEach(l => assert.ok(I18N.forms[f][l].length >= 1)));
 });
+
+// ---------- text on translucent surfaces (what is really drawn: the fill composited over the page) ----------
+["light", "dark"].forEach(mode => {
+  test("tokens (" + mode + "): secondary text also passes on fields and fills (placeholders, captions)", () => {
+    const set = tokens[mode];
+    ["--bg", "--card"].forEach(surf => {
+      const base = parseColor(set[surf]);
+      const filled = { rgb: over(parseColor(set["--fill"]), base), a: 1 };
+      const r = ratio(over(parseColor(set["--label-2"]), filled), filled.rgb);
+      assert.ok(r >= 4.5, mode + ": --label-2 on --fill over " + surf + " = " + r.toFixed(2));
+    });
+  });
+});
+
+test("the accent's text variants read on fills and on the toast for every palette colour", () => {
+  L.PALETTE.forEach(p => {
+    // the same numbers as renderVals uses for --tint-text-l / --tint-text-d
+    const lt = L.ensureContrast(p.l, "#F2F2F7", 5.3), dk = L.ensureContrast(p.l, "#1C1C1E", 7);
+    const on = (mode, fillTok, baseTok) => ({ rgb: over(parseColor(tokens[mode][fillTok]), parseColor(tokens[mode][baseTok])), a: 1 });
+    const surfaces = [];
+    ["light", "dark"].forEach(mode => {
+      const color = mode === "light" ? lt : dk;
+      ["--bg", "--card", "--glass-solid"].forEach(t => surfaces.push([mode, color, parseColor(tokens[mode][t])]));
+      // the secondary button and the selected tab are a translucent fill over the page / the tab bar
+      surfaces.push([mode, color, on(mode, "--fill", "--bg")], [mode, color, on(mode, "--fill", "--glass-solid")], [mode, color, on(mode, "--fill", "--card")]);
+    });
+    surfaces.forEach(([mode, color, surf]) => {
+      const r = ratio(L.hexToRgb(color), surf.rgb);
+      assert.ok(r >= 4.5, p.id + " (" + mode + ") text " + color + " on its surface = " + r.toFixed(2));
+    });
+  });
+});
+
+test("i18n: every palette colour has a name in every language (read out by screen readers)", () => {
+  ["ru", "kz", "en"].forEach(lang => L.PALETTE.forEach(p => assert.ok(I18N.accents[lang][p.id], lang + " name for " + p.id)));
+});

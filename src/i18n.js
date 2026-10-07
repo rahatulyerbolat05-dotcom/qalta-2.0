@@ -79,6 +79,7 @@ var ru = {
   errBelowPaid: "Сумма не может быть меньше уже возвращённого: {n} ₸",
   debtGone: "Этот долг уже удалён",
   updateReady: "Доступна новая версия", updateAction: "Обновить",
+  tenge: "тенге", resultsCount: "Найдено записей: {n}",
   // categories
   usedTimes: "Использована {n} {w}", notUsed: "Не использовалась", reorder: "Порядок", reorderDone: "Готово", moveUp: "Выше: {name}", moveDown: "Ниже: {name}",
   editCategory: "Категория", categoryName: "Название", color: "Цвет", icon: "Иконка", deleteCategory: "Удалить категорию", deleteNote: "Операции этой категории перейдут в «{to}».",
@@ -154,6 +155,7 @@ var kz = {
   errBelowPaid: "Сома қайтарылған сомадан аз болмауы керек: {n} ₸",
   debtGone: "Бұл қарыз жойылған",
   updateReady: "Жаңа нұсқа қолжетімді", updateAction: "Жаңарту",
+  tenge: "теңге", resultsCount: "Табылған жазбалар: {n}",
   usedTimes: "{n} {w} қолданылды", notUsed: "Қолданылмаған", reorder: "Реті", reorderDone: "Дайын", moveUp: "Жоғары: {name}", moveDown: "Төмен: {name}",
   editCategory: "Санат", categoryName: "Атауы", color: "Түсі", icon: "Белгіше", deleteCategory: "Санатты жою", deleteNote: "Бұл санаттың операциялары «{to}» санатына өтеді.",
   errNameEmpty: "Атауын енгізіңіз", errNameExists: "Мұндай санат бар", colorAria: "Түс: {name}",
@@ -227,6 +229,7 @@ var en = {
   errBelowPaid: "The amount cannot be less than what was already repaid: {n} ₸",
   debtGone: "This debt has already been deleted",
   updateReady: "A new version is available", updateAction: "Reload",
+  tenge: "tenge", resultsCount: "{n} results",
   usedTimes: "Used {n} {w}", notUsed: "Not used yet", reorder: "Reorder", reorderDone: "Done", moveUp: "Move up: {name}", moveDown: "Move down: {name}",
   editCategory: "Category", categoryName: "Name", color: "Colour", icon: "Icon", deleteCategory: "Delete category", deleteNote: "Transactions in this category will move to “{to}”.",
   errNameEmpty: "Enter a name", errNameExists: "This category already exists", colorAria: "Colour: {name}",

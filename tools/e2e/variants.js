@@ -41,4 +41,22 @@ module.exports = async (b) => {
   // desktop frame
   await load("light", 1280, 900, 1, false);
   await shot("desktop-home");
+  // narrowest phone (320 x 568) and a landscape phone: the entry sheet must stay usable
+  await load("light", 320, 568);
+  await shot("tiny-home");
+  await clickText(".q-tab", "История"); await b.wait(400); await shot("tiny-history");
+  await click(".q-fab"); await b.wait(500);
+  for (const k of ["1", "2", "3", "4", "5", "6", "7"]) await click('.q-key[aria-label="' + k + '"]');
+  await b.wait(300); await shot("tiny-entry");
+  await load("light", 844, 390);
+  await click(".q-fab"); await b.wait(500);
+  for (const k of ["1", "2", "0", "0"]) await click('.q-key[aria-label="' + k + '"]');
+  await b.wait(300); await shot("landscape-entry");
+  await b.ev("document.querySelector('#layer-entry .q-sheet-drag').parentNode.parentNode.scrollTop = 400; true"); await b.wait(300);
+  await shot("landscape-entry-scrolled");
+  // large text on the entry sheet and the debt sheet
+  await load("light", 390, 844);
+  await b.ev("document.documentElement.style.fontSize='34px'; true"); await b.wait(300);
+  await clickText(".q-tab", "Долги"); await b.wait(400);
+  await click(".q-group .q-row"); await b.wait(500); await shot("text200-debt");
 };

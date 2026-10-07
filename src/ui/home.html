@@ -1,9 +1,8 @@
 <sc-if value="{{ isHome }}">
 <section class="q-fade" aria-labelledby="h-home">
 <header class="q-head">
-<div class="grow"><div class="t-sub muted">{{ dateLine }}</div><h1 id="h-home" class="t-large">{{ t.overview }}</h1></div>
+<div class="grow"><div class="t-sub muted">{{ dateLine }}</div><h1 id="h-home" class="t-large" tabindex="-1">{{ t.overview }}</h1></div>
 </header>
-<sc-if value="{{ hasBanner }}"><div class="q-banner" role="alert">{{ banner }}</div></sc-if>
 <div class="q-page">
 
 <sc-for list="{{ tips }}" as="tp">

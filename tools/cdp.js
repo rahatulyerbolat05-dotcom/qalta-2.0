@@ -1,8 +1,18 @@
 // Tiny CDP driver: node cdp.js <script.js>   (script gets {page, shot, ev, click, wait})
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs"), path = require("path"), os = require("os");
 const EDGE = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const PORT = 9333 + Math.floor(Math.random() * 300);
+
+// On some Windows setups Edge relaunches itself ("--edge-skip-compat-layer-relaunch"): the process we spawn exits at once
+// and the real browser lives on, so killing our child stops nothing (every run left a headless Edge and its profile
+// behind). Find the browser by its unique profile folder instead, and stop it with all its helper processes.
+function stopBrowser(dir) {
+  const name = path.basename(dir).replace(/'/g, "''");
+  spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+    "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'msedge.exe' -and $_.CommandLine -like '*" + name + "*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"],
+  { stdio: "ignore", timeout: 30000 });
+}
 
 async function launch() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qedge-"));
@@ -22,7 +32,13 @@ async function launch() {
     else if (d.method === "Runtime.consoleAPICalled") logs.push(d.params.type + ": " + d.params.args.map(a => a.value !== undefined ? a.value : a.description).join(" "));
     else if (d.method === "Runtime.exceptionThrown") logs.push("EXC: " + (d.params.exceptionDetails.exception && d.params.exceptionDetails.exception.description || d.params.exceptionDetails.text));
   });
-  const send = (method, params) => new Promise((res, rej) => { const i = ++id; pending.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); });
+  // a command that never answers (a page stuck in a dialog, a crashed tab) must fail loudly instead of hanging the run
+  const send = (method, params) => new Promise((res, rej) => {
+    const i = ++id;
+    const t = setTimeout(() => { pending.delete(i); rej(new Error("CDP timeout (30 s): " + method)); }, 30000);
+    pending.set(i, { res: v => { clearTimeout(t); res(v); }, rej: e => { clearTimeout(t); rej(e); } });
+    ws.send(JSON.stringify({ id: i, method, params }));
+  });
   await send("Page.enable"); await send("Runtime.enable");
   const api = {
     logs,
@@ -48,12 +64,28 @@ async function launch() {
     async clickText(txt, root = "document") {
       return this.ev(`(()=>{const w=[...${root}.querySelectorAll('[role=button],button,input,div,span')].filter(e=>e.children.length<=3&&(e.innerText||'').trim()===${JSON.stringify(txt)});const e=w[0];if(!e)return false;e.scrollIntoView({block:'center'});e.click();return true})()`);
     },
-    close() { try { ws.close(); } catch (e) {} p.kill(); }
+    // Stop the browser and remove its profile folder (tens of megabytes: a few dozen leftovers filled a disk).
+    // Returns a promise: wait for it before the process exits.
+    close() {
+      try { ws.close(); } catch (e) {}
+      p.kill();
+      try { stopBrowser(dir); } catch (e) {}
+      return new Promise(resolve => setTimeout(() => {          // renderer and GPU processes can hold files for a moment
+        try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }); }
+        catch (e) { console.error("could not remove the Edge profile " + dir + ": " + e.message); }
+        resolve();
+      }, 800));
+    }
   };
   return api;
 }
 module.exports = { launch };
 if (require.main === module) {
   const script = require(path.resolve(process.argv[2]));
-  launch().then(async api => { try { await script(api); } catch (e) { console.error("SCRIPT ERROR", e); process.exitCode = 1; } finally { console.log("--- console ---\n" + api.logs.join("\n")); api.close(); } });
+  launch().then(async api => {
+    const limit = +process.env.QALTA_CDP_TIMEOUT || 420000;
+    const guard = setTimeout(() => { console.error("SCRIPT TIMEOUT after " + limit / 1000 + " s"); api.close().then(() => process.exit(2)); }, limit);
+    try { await script(api); } catch (e) { console.error("SCRIPT ERROR", e); process.exitCode = 1; }
+    finally { clearTimeout(guard); console.log("--- console ---\n" + api.logs.join("\n")); await api.close(); }
+  });
 }

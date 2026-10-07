@@ -1,9 +1,8 @@
 <sc-if value="{{ isSettings }}">
 <section class="q-fade" aria-labelledby="h-settings">
 <header class="q-head">
-<div class="grow"><h1 id="h-settings" class="t-large">{{ t.settings }}</h1></div>
+<div class="grow"><h1 id="h-settings" class="t-large" tabindex="-1">{{ t.settings }}</h1></div>
 </header>
-<sc-if value="{{ hasBanner }}"><div class="q-banner" role="alert">{{ banner }}</div></sc-if>
 <div class="q-page">
 
 <div class="q-sec-hd first"><h2 class="t-foot muted caps">{{ t.budgetAccounts }}</h2></div>
@@ -47,7 +46,7 @@
 <div class="q-row col">
 <span class="t-body">{{ t.language }}</span>
 <div class="q-seg" role="radiogroup" aria-label="{{ t.language }}">
-<sc-for list="{{ langs }}" as="lg"><button type="button" role="radio" aria-checked="{{ lg.on }}" class="q-seg-i {{ lg.cls }}" sc-camel-on-click="{{ lg.pick }}">{{ lg.name }}</button></sc-for>
+<sc-for list="{{ langs }}" as="lg"><button type="button" role="radio" aria-checked="{{ lg.on }}" class="q-seg-i {{ lg.cls }}" lang="{{ lg.code }}" sc-camel-on-click="{{ lg.pick }}">{{ lg.name }}</button></sc-for>
 </div>
 </div>
 </div>
@@ -73,6 +72,7 @@
 </sc-if>
 <sc-if value="{{ fbSignedOut }}">
 <button type="button" class="q-secondary" sc-camel-on-click="{{ fbSignIn }}">{{ t.signIn }}</button>
+<sc-if value="{{ fbSignInError }}"><div class="t-sub tx-neg q-note" role="alert">{{ fbSignInError }}</div></sc-if>
 <div class="t-foot muted q-note">{{ t.signInNote }}</div>
 </sc-if>
 </sc-if>

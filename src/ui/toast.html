@@ -1,6 +1,8 @@
+<div class="q-toast-host" role="status" aria-live="polite" aria-atomic="true">
 <sc-if value="{{ hasToast }}">
-<div class="q-toast" role="status" aria-live="polite">
+<div class="q-toast" sc-camel-on-mouse-enter="{{ toastPause }}" sc-camel-on-mouse-leave="{{ toastResume }}" sc-camel-on-focus="{{ toastPause }}" sc-camel-on-blur="{{ toastResume }}">
 <span class="grow">{{ toastText }}</span>
 <sc-if value="{{ hasToastAction }}"><button type="button" sc-camel-on-click="{{ toastAction }}">{{ toastActionLabel }}</button></sc-if>
 </div>
 </sc-if>
+</div>

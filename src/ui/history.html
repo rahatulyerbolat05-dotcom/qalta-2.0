@@ -1,7 +1,7 @@
 <sc-if value="{{ isHistory }}">
 <section class="q-fade" aria-labelledby="h-history">
 <header class="q-head">
-<div class="grow"><h1 id="h-history" class="t-large">{{ t.history }}</h1></div>
+<div class="grow"><h1 id="h-history" class="t-large" tabindex="-1">{{ t.history }}</h1></div>
 </header>
 <div class="q-page">
 
@@ -32,6 +32,8 @@
 <div class="grow"><div class="t-foot muted">{{ t.net }}</div><div class="t-headline num">{{ sumNet }}</div></div>
 </div>
 
+<div class="sr" role="status" aria-live="polite">{{ resultStatus }}</div>
+
 <sc-for list="{{ groups }}" as="g">
 <div class="q-day-hd"><h2 class="t-callout semi muted">{{ g.label }}</h2><span class="t-sub muted num">{{ g.sum }}</span></div>
 <div class="q-group">
@@ -45,9 +47,9 @@
 <span class="t-body semi num {{ r.amtCls }}">{{ r.amount }}</span>
 </div>
 </div>
-<div class="q-swipe-acts">
-<button type="button" class="q-act edit" sc-camel-on-click="{{ r.edit }}">{{ t.edit }}</button>
-<button type="button" class="q-act del" sc-camel-on-click="{{ r.remove }}">{{ t.delete }}</button>
+<div class="q-swipe-acts" aria-hidden="{{ r.actHide }}">
+<button type="button" class="q-act edit" tabindex="{{ r.actTab }}" aria-label="{{ r.editAria }}" sc-camel-on-click="{{ r.edit }}">{{ t.edit }}</button>
+<button type="button" class="q-act del" tabindex="{{ r.actTab }}" aria-label="{{ r.delAria }}" sc-camel-on-click="{{ r.remove }}">{{ t.delete }}</button>
 </div>
 </div>
 </div>

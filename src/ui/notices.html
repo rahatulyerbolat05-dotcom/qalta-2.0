@@ -1,0 +1,5 @@
+<div class="q-notices">
+<sc-if value="{{ hasBanner }}"><div class="q-banner" role="alert">{{ banner }}</div></sc-if>
+<sc-if value="{{ hasReadBanner }}"><div class="q-banner" role="alert"><span class="grow">{{ readBanner }}</span><button type="button" class="q-link" sc-camel-on-click="{{ dismissRead }}">{{ dismissLabel }}</button></div></sc-if>
+<sc-if value="{{ hasUpdate }}"><div class="q-banner info" role="status"><span class="grow">{{ updateText }}</span><button type="button" class="q-link" sc-camel-on-click="{{ reloadNow }}">{{ updateLabel }}</button></div></sc-if>
+</div>

@@ -38,7 +38,7 @@ class Component extends DCLogic {
     pkQ: "", clKind: "expense", clReorder: false, ce: null, cf: null, viewDebtId: null,
     hq: "", period: "month", pOffset: 0, kind: "all", limit: PAGE, swipeId: null, flashId: null,
     debtSide: "owed", showClosed: false, bkMsg: "", bkCls: "", toast: null, storageError: false,
-    readFail: "", updateReady: false, fbUser: null, fbStatus: "", tick: 0
+    readFail: "", updateReady: false, spoken: "", fbUser: null, fbStatus: "", tick: 0
   };
 
   // ───────────────────────────── lifecycle ─────────────────────────────
@@ -83,7 +83,7 @@ class Component extends DCLogic {
     if (this._onNet) { window.removeEventListener("online", this._onNet); window.removeEventListener("offline", this._onNet); }
     const d = this.dirty();
     if (d.data || d.ui) this.persistNow();     // an unmount inside the 200 ms window must not drop the last change
-    clearInterval(this._libTimer); clearTimeout(this._pt); clearTimeout(this._retryT); clearTimeout(this._toastT); clearTimeout(this._midT);
+    clearInterval(this._libTimer); clearTimeout(this._pt); clearTimeout(this._retryT); clearTimeout(this._toastT); clearTimeout(this._midT); clearTimeout(this._spkT);
     this.fbStopSync();
   }
 
@@ -96,6 +96,17 @@ class Component extends DCLogic {
     // a debt sheet cannot outlive its debt (deleted on another device, say)
     if (s.viewDebtId != null && QL.hasLayer(s.layers, "debtView") && !this.findDebt(s.viewDebtId)) this.closeKinds(["debtView"]);
     this.layerEffects();
+    this.syncRadios();
+  }
+  // Segmented controls are one tab stop: the selected segment is tabbable, the others are reached with the arrow keys.
+  syncRadios() {
+    try {
+      Array.prototype.forEach.call(document.querySelectorAll('[role="radiogroup"]'), g => {
+        const items = Array.prototype.slice.call(g.querySelectorAll('[role="radio"]'));
+        const on = items.filter(x => x.getAttribute("aria-checked") === "true")[0] || items[0];
+        items.forEach(x => x.setAttribute("tabindex", x === on ? "0" : "-1"));
+      });
+    } catch (e) {}
   }
 
   // ───────────────────────────── storage ─────────────────────────────
@@ -250,7 +261,7 @@ class Component extends DCLogic {
     this.setState(st => Object.assign({ layers: QL.pushLayer(st.layers, { kind }) }, extra || {}));
   }
   layerCleanup(kind, patch) {
-    if (kind === "entry") patch.form = null;
+    if (kind === "entry") { patch.form = null; patch.spoken = ""; clearTimeout(this._spkT); }
     else if (kind === "cats") patch.pkQ = "";
     else if (kind === "when") patch.whMsg = "";
     else if (kind === "catEdit") patch.ce = null;
@@ -305,12 +316,13 @@ class Component extends DCLogic {
     if (kind !== this._topKind) {
       if (!this._topKind && kind) this._lastFocus = document.activeElement;
       this._topKind = kind;
-      const raf = window.requestAnimationFrame || (f => setTimeout(f, 16));
+      // a timer, not requestAnimationFrame: frames stop in a hidden or occluded window, and focus must still move
+      const later = f => setTimeout(f, 0);
       if (kind) {
-        raf(() => { const el = document.getElementById("layer-" + kind); if (el && el.focus) el.focus({ preventScroll: true }); });
+        later(() => { const el = document.getElementById("layer-" + kind); if (el && el.focus) el.focus({ preventScroll: true }); });
       } else {
         const back = this._lastFocus; this._lastFocus = null;
-        raf(() => {
+        later(() => {
           try {
             // the control that opened the sheet; when it is gone (the row was deleted, the screen changed) the screen's heading
             const target = back && back !== document.body && document.contains(back) ? back : document.querySelector("#q-scroll h1");
@@ -367,6 +379,15 @@ class Component extends DCLogic {
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     // Ctrl/Cmd+Z takes the last action back while its toast is still up (never while typing in a field)
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === "z" && !typing && this._undoFn) { e.preventDefault(); this.runUndo(); return; }
+    if (el && el.getAttribute && el.getAttribute("role") === "radio" && /^Arrow(Left|Right|Up|Down)$/.test(e.key)) {
+      const group = el.closest ? el.closest('[role="radiogroup"]') : null;
+      if (group) {
+        const items = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]')), step = /Left|Up/.test(e.key) ? -1 : 1;
+        const next = items[(items.indexOf(el) + step + items.length) % items.length];
+        if (next) { e.preventDefault(); next.click(); if (next.focus) next.focus(); }
+        return;
+      }
+    }
     if ((e.key === "Enter" || e.key === " ") && el && el.getAttribute && el.getAttribute("role") === "button" && el.tabIndex >= 0) {
       e.preventDefault(); el.click(); return;
     }
@@ -410,8 +431,7 @@ class Component extends DCLogic {
   // After a tab switch focus moves to the new screen's heading, so a screen reader announces where it is
   // and keyboard users continue from the top of the new screen.
   focusScreen() {
-    const raf = window.requestAnimationFrame || (f => setTimeout(f, 16));
-    raf(() => { try { const h = document.querySelector("#q-scroll h1"); if (h && h.focus) h.focus({ preventScroll: true }); } catch (e) {} });
+    setTimeout(() => { try { const h = document.querySelector("#q-scroll h1"); if (h && h.focus) h.focus({ preventScroll: true }); } catch (e) {} }, 0);
   }
   setTip(key, val) { this.setState(st => ({ tips: Object.assign({}, st.tips, { [key]: val === undefined ? true : val }) })); }
 
@@ -475,6 +495,15 @@ class Component extends DCLogic {
       if (d && QL.amountFromDigits(amount) > QL.debtLeft(d)) amount = String(QL.debtLeft(d));
     }
     this.setState({ form: Object.assign({}, f, { amount, zero, showErr: false, msg: "" }) });
+    this.speakAmount();
+  }
+  // A screen reader hears the amount once typing pauses, not after every key (the keys name themselves).
+  speakAmount() {
+    clearTimeout(this._spkT);
+    this._spkT = setTimeout(() => {
+      const f = this.state.form;
+      if (f) this.setState({ spoken: (QL.amountFromDigits(f.amount) || 0) + " " + this.t().tenge });
+    }, 600);
   }
 
   entryValid(f) {
@@ -943,13 +972,22 @@ class Component extends DCLogic {
     };
   }
   iconD(name, w) { const i = ICONS[name] || ICONS.tag; return i[w] || i.f || i.r || i.b || ""; }
+  // A coloured surface that carries text: white text only where it reads at 4.5:1 (the fill is deepened until it
+  // does, so a red or blue stays itself but a little darker), dark text on light fills.
+  textSurface(fill) {
+    const cache = this._tsCache || (this._tsCache = Object.create(null));
+    if (cache[fill]) return cache[fill];
+    const out = QL.pickText(fill, "#FFFFFF", "#1C1C1E", 3) === "#FFFFFF" ? { fill: QL.ensureContrast(fill, "#FFFFFF", 4.5), text: "#FFFFFF" } : { fill, text: "#1C1C1E" };
+    return (cache[fill] = out);
+  }
   vis(name) {
     const s = this.state, lk = QL.catLook(name, s.catColors, s.catIcons);
-    return { cl: lk.l, cd: lk.d, fl: QL.pickText(lk.l, "#FFFFFF", "#1C1C1E", 3), fd: QL.pickText(lk.d, "#FFFFFF", "#1C1C1E", 3), d: this.iconD(lk.icon, "f"), icon: lk.icon, id: lk.id };
+    const L = this.textSurface(lk.l), D = this.textSurface(lk.d);
+    return { cl: L.fill, cd: D.fill, fl: L.text, fd: D.text, d: this.iconD(lk.icon, "f"), icon: lk.icon, id: lk.id };
   }
   palVis(id) {
-    const p = QL.paletteById(id);
-    return { cl: p.l, cd: p.d, fl: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), fd: QL.pickText(p.d, "#FFFFFF", "#1C1C1E", 3) };
+    const p = QL.paletteById(id), L = this.textSurface(p.l), D = this.textSurface(p.d);
+    return { cl: L.fill, cd: D.fill, fl: L.text, fd: D.text };
   }
 
   renderVals() {
@@ -969,7 +1007,7 @@ class Component extends DCLogic {
     const home = s.tab === "home" ? this.homeVals(c) : {};
     const out = Object.assign({
       t, L, Z, tint, onTint,
-      tintTextL: QL.ensureContrast(hex, "#F2F2F7", 4.5), tintTextD: QL.ensureContrast(hex, "#1C1C1E", 4.5),
+      tintTextL: QL.ensureContrast(hex, "#F2F2F7", 5.3), tintTextD: QL.ensureContrast(hex, "#1C1C1E", 7),
       isHome: s.tab === "home", isHistory: s.tab === "history", isDebts: s.tab === "debts", isSettings: s.tab === "settings",
       stackN: home.showWallet ? home.wallet.length : 0,
       tabs: TAB_DEFS.map(d => ({ label: t[d[2]], d: this.iconD(d[1], s.tab === d[0] ? "f" : "r"), cls: s.tab === d[0] ? "on" : "", cur: s.tab === d[0] ? "page" : undefined, go: () => this.goTab(d[0]) })),
@@ -1124,6 +1162,7 @@ class Component extends DCLogic {
     const groups = QL.groupByDay(shown, now, lang, { today: t.today, yesterday: t.yesterday });
     const swipe = o => ({
       shift: s.swipeId === o.id ? "-9rem" : "0px",
+      actTab: s.swipeId === o.id ? "0" : "-1", actHide: s.swipeId === o.id ? undefined : "true",
       start: e => {
         this._x0 = e.clientX; this._sw = o.id; this._moved = false; this._held = false;
         if (this.state.swipeId && this.state.swipeId !== o.id) this.setState({ swipeId: null });
@@ -1141,6 +1180,7 @@ class Component extends DCLogic {
     });
     const mk = o => {
       const row = this.opRow(o, c, false), sw = swipe(o), baseTap = row.tap;
+      sw.editAria = t.edit + ": " + row.name + ", " + row.amount; sw.delAria = t.delete + ": " + row.name + ", " + row.amount;
       row.tap = () => {
         if (this._moved) { this._moved = false; return; }
         if (this.state.swipeId === o.id) { this.setState({ swipeId: null }); return; }
@@ -1163,6 +1203,7 @@ class Component extends DCLogic {
       canMore: rows.length > shown.length, moreText: QL.fill(t.showMore, { n: Math.min(PAGE, rows.length - shown.length) }),
       showMore: () => this.setState(st => ({ limit: st.limit + PAGE })),
       noRows: rows.length === 0, noRowsText: s.hq ? t.noRowsSearch : t.noRowsEmpty,
+      resultStatus: s.hq ? QL.fill(t.resultsCount, { n: rows.length }) : "",
       canResetSearch: !!s.hq, resetSearch: () => this.setState({ hq: "", limit: PAGE })
     };
   }
@@ -1210,8 +1251,8 @@ class Component extends DCLogic {
   }
   // Avatar colour from the person's name (stable).
   palFor(name) {
-    const p = QL.PALETTE[QL.nameHash(name) % (QL.PALETTE.length - 1)];
-    return { cl: p.l, cd: p.d, fl: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), fd: QL.pickText(p.d, "#FFFFFF", "#1C1C1E", 3) };
+    const p = QL.PALETTE[QL.nameHash(name) % (QL.PALETTE.length - 1)], L = this.textSurface(p.l), D = this.textSurface(p.d);
+    return { cl: L.fill, cd: D.fill, fl: L.text, fd: D.text };
   }
 
   settingsVals(c) {
@@ -1230,7 +1271,7 @@ class Component extends DCLogic {
         row(t.incomeCats, String(this.cats("income").length), "coins", "mint", () => this.openCatList("income"))
       ],
       themes: themes.map(x => ({ name: x[1], on: s.theme === x[0], cls: s.theme === x[0] ? "on" : "", pick: () => this.setState({ theme: x[0] }) })),
-      langs: [["ru", "Рус"], ["kz", "Қаз"], ["en", "Eng"]].map(x => ({ name: x[1], on: s.lang === x[0], cls: s.lang === x[0] ? "on" : "", pick: () => this.setState({ lang: x[0] }) })),
+      langs: [["ru", "Рус", "ru"], ["kz", "Қаз", "kk"], ["en", "Eng", "en"]].map(x => ({ name: x[1], code: x[2], on: s.lang === x[0], cls: s.lang === x[0] ? "on" : "", pick: () => this.setState({ lang: x[0] }) })),
       swatches: ACCENTS.map(id => {
         const p = QL.paletteById(id), on = (s.hex || "").toUpperCase() === p.l.toUpperCase();
         return { c: p.l, f: QL.pickText(p.l, "#FFFFFF", "#1C1C1E", 3), on, cls: on ? "on" : "", aria: QL.fill(t.colorAria, { name: (I18N.accents[lang] || I18N.accents.ru)[id] || id }), pick: () => this.setState({ hex: p.l }) };
@@ -1426,6 +1467,7 @@ class Component extends DCLogic {
     Object.assign(out, { title, cl: look.cl, cd: look.cd, fl: look.fl, fd: look.fd, saveLabel });
     const digits = f.amount.length;
     out.amountText = f.amount ? c.fmt(f.amount) : "0";
+    out.spoken = s.spoken;
     out.amountCls = digits > 7 ? "long" : "";
     out.saveOff = !valid; out.saveCls = valid ? "" : "is-off"; out.save = this.saveEntry;
     out.keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "del"].map(k => {

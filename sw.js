@@ -1,7 +1,7 @@
 // Қalta offline shell. Keeps the app launchable with no network; data itself is
 // stored by the app (localStorage + Firestore's offline cache), not here.
 // tools/build.js rewrites VERSION from the shipped files, so every release starts with a clean cache.
-const VERSION = "qalta-shell-54b844f9";
+const VERSION = "qalta-shell-5539ab29";
 const REQUIRED = ["./", "index.html"];
 const OPTIONAL = ["manifest.json", "firebase-config.js", "sync-engine.js",
   "icons/icon-192.png", "icons/icon-512.png", "icons/favicon.ico"];

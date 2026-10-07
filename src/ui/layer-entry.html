@@ -1,7 +1,7 @@
 <sc-if value="{{ L.entry }}">
 <div class="q-layer" style="z-index:{{ Z.entry }}">
 <div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
-<div id="layer-entry" class="q-sheet large" role="dialog" aria-modal="true" aria-label="{{ en.title }}" tabindex="-1">
+<div id="layer-entry" class="q-sheet large flow" role="dialog" aria-modal="true" aria-label="{{ en.title }}" tabindex="-1">
 
 <div class="q-entry-head cc" style="--cl:{{ en.cl }};--cd:{{ en.cd }};--fl:{{ en.fl }};--fd:{{ en.fd }}">
 <div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
@@ -21,7 +21,8 @@
 <sc-if value="{{ en.showCatBadge }}">
 <div class="q-entry-cat"><span class="q-tile"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="{{ en.catD }}"></path></svg></span><span class="t-title3">{{ en.catName }}</span></div>
 </sc-if>
-<div class="q-amount num {{ en.amountCls }}" role="status" aria-live="polite" aria-atomic="true">{{ en.amountText }}<span class="q-caret" aria-hidden="true"></span><span class="q-cur">&nbsp;₸</span></div>
+<div class="q-amount num {{ en.amountCls }}">{{ en.amountText }}<span class="q-caret" aria-hidden="true"></span><span class="q-cur">&nbsp;₸</span></div>
+<div class="sr" role="status" aria-live="polite">{{ en.spoken }}</div>
 </div>
 </div>
 
@@ -72,8 +73,8 @@
 </button>
 </sc-for>
 </div>
-<div class="q-entry-save"><button type="button" class="q-primary {{ en.saveCls }}" aria-disabled="{{ en.saveOff }}" sc-camel-on-click="{{ en.save }}">{{ en.saveLabel }}</button></div>
 </div>
+<div class="q-entry-save"><button type="button" class="q-primary {{ en.saveCls }}" aria-disabled="{{ en.saveOff }}" sc-camel-on-click="{{ en.save }}">{{ en.saveLabel }}</button></div>
 
 </div>
 </div>

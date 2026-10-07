@@ -11,7 +11,7 @@ module.exports = {
     "--card": "#FFFFFF",          // secondarySystemGroupedBackground
     "--card-2": "#F2F2F7",        // tertiary grouped, used inside cards
     "--label": "#000000",
-    "--label-2": "rgba(60,60,67,.74)",
+    "--label-2": "rgba(60,60,67,.78)",
     "--label-3": "rgba(60,60,67,.5)",
     "--sep": "rgba(60,60,67,.2)",
     "--fill": "rgba(120,120,128,.12)",

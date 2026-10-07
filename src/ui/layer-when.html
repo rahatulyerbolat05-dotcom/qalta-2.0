@@ -21,7 +21,7 @@
 <sc-if value="{{ wh.hasTime }}"><label class="q-row"><span class="t-body">{{ t.time }}</span><span class="grow"></span><input type="time" class="q-input plain" value="{{ wh.time }}" sc-camel-on-change="{{ wh.setTime }}" aria-label="{{ t.time }}"></label></sc-if>
 </div>
 <sc-if value="{{ wh.hasClear }}"><button type="button" class="q-secondary mt12" sc-camel-on-click="{{ wh.clear }}">{{ t.noDue }}</button></sc-if>
-<sc-if value="{{ wh.hasMsg }}"><div class="t-sub tx-neg q-note" role="status">{{ wh.msg }}</div></sc-if>
+<div class="t-sub tx-neg q-note" role="status" aria-live="polite">{{ wh.msg }}</div>
 </div>
 </div>
 </div>

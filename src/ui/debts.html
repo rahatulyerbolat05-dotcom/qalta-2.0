@@ -1,7 +1,7 @@
 <sc-if value="{{ isDebts }}">
 <section class="q-fade" aria-labelledby="h-debts">
 <header class="q-head">
-<div class="grow"><h1 id="h-debts" class="t-large">{{ t.debts }}</h1></div>
+<div class="grow"><h1 id="h-debts" class="t-large" tabindex="-1">{{ t.debts }}</h1></div>
 <button type="button" class="q-iconbtn round" aria-label="{{ t.addDebt }}" sc-camel-on-click="{{ addDebt }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:plus:b%%"></path></svg></button>
 </header>
 <div class="q-page">
@@ -21,7 +21,7 @@
 <span class="grow">
 <span class="t-body semi ell db">{{ d.name }}</span>
 <span class="t-sub db {{ d.subCls }}">{{ d.sub }}</span>
-<sc-if value="{{ d.hasProg }}"><span class="q-prog cc db" style="--cl:{{ d.cl }};--cd:{{ d.cd }}"><i style="width:{{ d.progW }}"></i></span></sc-if>
+<sc-if value="{{ d.hasProg }}"><span class="q-prog cc db" aria-hidden="true" style="--cl:{{ d.cl }};--cd:{{ d.cd }}"><i style="width:{{ d.progW }}"></i></span></sc-if>
 </span>
 <span class="t-body semi num">{{ d.left }}</span>
 </div>

@@ -1,7 +1,7 @@
 <sc-if value="{{ L.debtView }}">
 <div class="q-layer" style="z-index:{{ Z.debtView }}">
 <div class="q-dim" aria-hidden="true" sc-camel-on-click="{{ dismissTop }}"></div>
-<div id="layer-debtView" class="q-sheet large" role="dialog" aria-modal="true" aria-label="{{ dv.name }}" tabindex="-1">
+<div id="layer-debtView" class="q-sheet large flow" role="dialog" aria-modal="true" aria-label="{{ dv.name }}" tabindex="-1">
 
 <div class="q-entry-head cc" style="--cl:{{ dv.cl }};--cd:{{ dv.cd }};--fl:{{ dv.fl }};--fd:{{ dv.fd }}">
 <div class="q-sheet-drag" sc-camel-on-pointer-down="{{ sheetDown }}" sc-camel-on-pointer-move="{{ sheetMove }}" sc-camel-on-pointer-up="{{ sheetUp }}" sc-camel-on-pointer-cancel="{{ sheetUp }}">
@@ -9,7 +9,8 @@
 <div class="q-nav">
 <button type="button" class="q-nbtn" aria-label="{{ t.cancel }}" sc-camel-on-click="{{ dismissTop }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:x:b%%"></path></svg></button>
 <div class="t-headline ell">{{ dv.name }}</div>
-<button type="button" class="q-nbtn" sc-camel-on-click="{{ dv.edit }}">{{ t.edit }}</button>
+<sc-if value="{{ dv.canEdit }}"><button type="button" class="q-nbtn" sc-camel-on-click="{{ dv.edit }}">{{ t.edit }}</button></sc-if>
+<sc-if value="{{ !dv.canEdit }}"><span class="q-nbtn-sp"></span></sc-if>
 </div>
 </div>
 <div class="q-entry-top">
@@ -24,13 +25,13 @@
 <div class="q-row"><span class="t-body">{{ t.due }}</span><span class="grow"></span><span class="q-val {{ dv.dueCls }}">{{ dv.dueText }}</span></div>
 <sc-if value="{{ dv.hasNote }}"><div class="q-row"><span class="t-body">{{ t.note }}</span><span class="grow"></span><span class="q-val">{{ dv.note }}</span></div></sc-if>
 </div>
-<sc-if value="{{ dv.hasProg }}"><div class="q-prog cc mh16" style="--cl:{{ dv.cl }};--cd:{{ dv.cd }}"><i style="width:{{ dv.progW }}"></i></div></sc-if>
+<sc-if value="{{ dv.hasProg }}"><div class="q-prog cc mh16" aria-hidden="true" style="--cl:{{ dv.cl }};--cd:{{ dv.cd }}"><i style="width:{{ dv.progW }}"></i></div></sc-if>
 
 <sc-if value="{{ dv.hasLog }}">
 <div class="q-sec-hd mh16"><h2 class="t-foot muted caps">{{ t.repayLog }}</h2></div>
 <div class="q-group">
 <sc-for list="{{ dv.log }}" as="lg">
-<div class="q-row"><span class="t-body">{{ lg.date }}</span><span class="grow"></span><span class="t-body num">{{ lg.sum }}</span><button type="button" class="q-iconbtn" aria-label="{{ lg.aria }}" sc-camel-on-click="{{ lg.remove }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:trash:r%%"></path></svg></button></div>
+<div class="q-row"><span class="t-body">{{ lg.date }}</span><span class="grow"></span><span class="t-body num">{{ lg.sum }}</span><sc-if value="{{ dv.canTakeBack }}"><button type="button" class="q-iconbtn" aria-label="{{ lg.aria }}" sc-camel-on-click="{{ lg.remove }}"><svg class="q-ico" sc-camel-view-box="0 0 256 256" aria-hidden="true"><path d="%%icon:trash:r%%"></path></svg></button></sc-if></div>
 </sc-for>
 </div>
 </sc-if>
