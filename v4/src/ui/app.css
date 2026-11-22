@@ -175,3 +175,63 @@
 @keyframes toast-in { from { opacity: 0; transform: translateY(24px) scale(0.96); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(16px) scale(0.98); } }
 .toast button { flex: none; height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: rgba(255, 255, 255, 0.1); color: var(--dew); font-weight: 600; }
+
+/* ───── money: totals and envelopes ───── */
+.totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.totals div { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); min-width: 0; }
+.totals span { font-size: 12px; color: var(--mist); }
+.totals b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.section-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.pill.small { height: 34px; padding: 0 14px; font-size: 14px; }
+.soon .pill { align-self: flex-start; margin-top: 8px; height: auto; min-height: 40px; padding: 8px 16px; text-align: left; }
+.env-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.env { min-height: 132px; padding: 14px; border: 0; display: flex; flex-direction: column; align-items: flex-start; text-align: left; color: var(--ink); font: inherit; transition: transform 200ms var(--ease-bouncy); }
+.env:active { transform: scale(0.97); }
+.env.dew { background: var(--dew); } .env.mist { background: var(--mist); } .env.glint { background: var(--glint); }
+.env.deep { background: var(--dew-deep); color: var(--dawn); }
+.env-name { font-size: 15px; font-weight: 600; }
+.env-rule { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+.env-sum { margin-top: auto; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.env-bar { width: 100%; height: 6px; margin-top: 8px; border-radius: 3px; background: rgba(15, 26, 33, 0.16); overflow: hidden; }
+.env-bar i { display: block; height: 100%; background: currentColor; transform-origin: 0 50%; transition: transform 600ms var(--ease-spring); }
+.env-chips { margin-top: 8px; }
+.center { text-align: center; }
+.link { align-self: center; height: 44px; border: 0; background: none; color: var(--dew-deep); font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ───── income split ───── */
+.alloc { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.alloc-sum { margin: 0; text-align: center; font-size: 48px; font-weight: 700; letter-spacing: -0.03em; color: var(--dew-deep); font-variant-numeric: tabular-nums; }
+.alloc-sum span { font-size: 24px; font-weight: 600; }
+.alloc-bar { display: flex; gap: 2px; height: 12px; margin: 14px 0 4px; border-radius: 6px; overflow: hidden; }
+.alloc-bar i { flex-basis: 0; min-width: 4px; transition: flex-grow 500ms var(--ease-spring); }
+.alloc-bar .dew, .sw.dew { background: var(--dew); } .alloc-bar .mist, .sw.mist { background: var(--mist); }
+.alloc-bar .glint, .sw.glint { background: var(--glint); } .alloc-bar .deep, .sw.deep { background: var(--dew-deep); }
+.alloc-bar .free, .sw.free { background: rgba(15, 26, 33, 0.18); }
+.alloc-lines { list-style: none; margin: 0; padding: 0; }
+.alloc-lines li { display: flex; align-items: center; gap: 12px; min-height: 60px; border-bottom: 1px solid rgba(15, 26, 33, 0.08); }
+.alloc-lines li:last-child { border-bottom: 0; }
+.sw { width: 14px; height: 14px; border-radius: 7px; flex: none; }
+.alloc-name { flex: 1; display: flex; flex-direction: column; font-size: 16px; font-weight: 500; min-width: 0; }
+.alloc-name small { font-size: 13px; font-weight: 400; color: var(--dew-deep); }
+.alloc-amt { height: 40px; padding: 0 12px; border: 0; border-radius: 20px; background: rgba(15, 26, 33, 0.06); color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.alloc-input { width: 130px; height: 40px; padding: 0 12px; border: 0; border-radius: 20px; background: rgba(15, 26, 33, 0.1); color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; text-align: right; outline: none; box-shadow: inset 0 0 0 2px var(--dew-deep); }
+.free-line b { font-size: 16px; font-variant-numeric: tabular-nums; padding-right: 12px; }
+
+/* ───── swipe to confirm ───── */
+.confirm { margin-top: 10px; background: rgba(15, 26, 33, 0.07); }
+.confirm-track { position: relative; height: 64px; display: flex; align-items: center; justify-content: center; background: linear-gradient(90deg, rgba(127, 168, 163, 0.35) calc(var(--k, 0) * 100%), transparent 0); }
+.confirm-label { font-size: 15px; font-weight: 500; color: var(--dew-deep); padding-left: 48px; }
+.confirm-thumb { position: absolute; left: 6px; top: 6px; width: 52px; height: 52px; border: 0; border-radius: 18px; background: var(--ink); color: var(--dew); display: flex; align-items: center; justify-content: center; touch-action: none; transition: transform var(--dur-bouncy) var(--ease-bouncy); }
+.confirm-thumb svg { transform: rotate(45deg); }
+.confirm.off { opacity: 0.45; }
+
+/* ───── done ───── */
+.done { position: fixed; inset: 0; z-index: 40; border: 0; padding: 0; background: var(--dew); color: var(--ink); font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; animation: reveal 620ms var(--ease-spring) both; }
+@keyframes reveal { from { clip-path: circle(0 at var(--x) var(--y)); } to { clip-path: circle(150% at var(--x) var(--y)); } }
+.done-check { animation: pop var(--dur-bouncy) var(--ease-bouncy) 240ms both; }
+.done-sum { font-size: 48px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; animation: rise 400ms var(--ease-spring) 300ms both; }
+.done-text { font-size: 17px; font-weight: 500; animation: rise 400ms var(--ease-spring) 360ms both; }
+.done-pill { margin-top: 16px; padding: 10px 16px; border-radius: 20px; background: rgba(15, 26, 33, 0.1); font-size: 15px; animation: rise 400ms var(--ease-spring) 420ms both; }
+.done-close { position: absolute; bottom: calc(var(--safe-bottom) + 40px); font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { .done, .done * { animation: none !important; } }

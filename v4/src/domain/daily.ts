@@ -25,6 +25,7 @@ export interface Tx extends Stamped {
   amount: number; // positive whole tenge
   accountId: string;
   toAccountId?: string; // transfers only
+  envelopeId?: string; // an expense paid from an envelope: not part of today's spending
   category: string; // empty for transfers
   note: string;
   at: number; // when it happened, ms
@@ -90,7 +91,8 @@ export function accountBalance(acc: Account, txs: readonly Tx[]): number {
   return sum;
 }
 
-export function dayFigure(accountsAll: readonly Account[], txsAll: readonly Tx[], now: number, until: string): DayFigure {
+// `reserved` is the money in envelopes (envelopes.ts reservedTotal): it is not free to spend.
+export function dayFigure(accountsAll: readonly Account[], txsAll: readonly Tx[], now: number, until: string, reserved = 0): DayFigure {
   const accounts = live(accountsAll);
   const txs = live(txsAll);
   const today = startOfDay(now);
@@ -99,12 +101,12 @@ export function dayFigure(accountsAll: readonly Account[], txsAll: readonly Tx[]
   for (const a of accounts) balance += accountBalance(a, txs);
   let spent = 0;
   for (const tx of txs) {
-    if (tx.kind !== 'expense' || tx.at < today) continue;
+    if (tx.kind !== 'expense' || tx.at < today || tx.envelopeId) continue;
     const acc = byId.get(tx.accountId);
     if (acc && tx.at >= acc.openingAt) spent += tx.amount;
   }
   const daysLeft = daysUntil(now, until);
-  const base = balance + spent; // money at the start of today, with today's income
+  const base = balance - reserved + spent; // free money at the start of today, with today's income
   const allowance = Math.max(0, Math.floor(base / daysLeft));
   return { allowance, spent, left: allowance - spent, daysLeft, balance };
 }
@@ -114,7 +116,7 @@ export function categoryUsage(txs: readonly Tx[], kind: 'expense' | 'income', li
   const m = new Map<string, number>();
   let seen = 0;
   for (const tx of txs) {
-    if (tx.deleted || tx.kind !== kind) continue;
+    if (tx.deleted || tx.kind !== kind || tx.envelopeId) continue;
     m.set(tx.category, (m.get(tx.category) ?? 0) + 1);
     if (++seen >= limit) break;
   }

@@ -9,6 +9,8 @@ import { useStore, useToday } from './useStore.ts';
 import { Entry } from './Entry.tsx';
 import { Setup } from './Setup.tsx';
 import { AccountSheet, Money, People, Profile, Today } from './Screens.tsx';
+import { Allocate, Done, EnvelopeSheet } from './Envelopes.tsx';
+import { envelopeBalance, planIncome, reservedTotal, type Envelope } from '../domain/envelopes.ts';
 
 type Tab = 'people' | 'today' | 'money';
 const ORDER: Tab[] = ['people', 'today', 'money'];
@@ -23,6 +25,8 @@ type Open =
   | { kind: 'setup' }
   | { kind: 'account'; account: Account }
   | { kind: 'profile' }
+  | { kind: 'envelope'; env: Envelope | null }
+  | { kind: 'allocate'; tx: Tx }
   | null;
 
 export function App() {
@@ -31,7 +35,11 @@ export function App() {
   const [tab, setTab] = useState<Tab>('today');
   const [sheet, setSheet] = useState<Open>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
-  const figure = dayFigure(s.accounts, s.txs, now, s.settings.until);
+  const reserved = reservedTotal(s.envelopes, s.allocations, s.txs);
+  const figure = dayFigure(s.accounts, s.txs, now, s.settings.until, reserved);
+  const envBalance = (e: Envelope) => envelopeBalance(e, s.allocations, s.txs);
+  const perDayWith = (extraReserved: number) => dayFigure(s.accounts, s.txs, Date.now(), s.settings.until, reserved + extraReserved).allowance;
+  const [done, setDone] = useState<{ amount: number; count: number; perDay: number; from: { x: number; y: number } } | null>(null);
   const say = (text: string, action?: ToastData['action']) => setToast({ id: Date.now(), text, action });
   const page = useRef<HTMLDivElement>(null);
   const prevTab = useRef(tab);
@@ -115,7 +123,21 @@ export function App() {
               }}
             />
           )}
-          {tab === 'money' && <Money s={s} figure={figure} onAccount={(account) => setSheet({ kind: 'account', account })} />}
+          {tab === 'money' && (
+            <Money
+              s={s}
+              figure={figure}
+              reserved={reserved}
+              envBalance={envBalance}
+              onAccount={(account) => setSheet({ kind: 'account', account })}
+              onEnvelope={(env) => setSheet({ kind: 'envelope', env })}
+              onPresets={() => {
+                store.saveEnvelope({ name: 'Близким', kind: 'reserve', ruleMode: 'percent', ruleValue: 20, target: 0 });
+                store.saveEnvelope({ name: 'Подушка', kind: 'goal', ruleMode: 'percent', ruleValue: 10, target: 100_000 });
+                say('Конверты созданы. Проценты и цель можно поменять');
+              }}
+            />
+          )}
           {tab === 'people' && <People />}
         </div>
         <Tabs items={TABS} value={tab} onChange={setTab} />
@@ -129,16 +151,21 @@ export function App() {
             editing={editing}
             accounts={s.accounts}
             txs={s.txs}
+            envelopes={s.envelopes}
+            envBalance={envBalance}
             left={leftForEntry}
             onDelete={editing ? () => { setSheet(null); remove(editing.id); } : undefined}
             onSave={(e) => {
               setSheet(null);
               if (editing) {
                 store.updateTx(editing.id, e);
-                say('Изменения сохранены', { label: 'Отменить', run: () => store.updateTx(editing.id, { kind: editing.kind, amount: editing.amount, category: editing.category, accountId: editing.accountId, at: editing.at, note: editing.note }) });
+                say('Изменения сохранены', { label: 'Отменить', run: () => store.updateTx(editing.id, { kind: editing.kind, amount: editing.amount, category: editing.category, accountId: editing.accountId, at: editing.at, note: editing.note, envelopeId: editing.envelopeId }) });
               } else {
                 const tx = store.addTx({ ...e });
-                say(`Записано: ${tx.category} ${signed(tx.amount, tx.kind as 'expense' | 'income')}`, { label: 'Отменить', run: () => store.removeTx(tx.id) });
+                // A new income opens the split right away, while the money is still whole.
+                const plan = tx.kind === 'income' ? planIncome(tx.amount, s.envelopes, new Map(s.envelopes.map((x) => [x.id, envBalance(x)]))) : null;
+                if (plan && plan.lines.length) setTimeout(() => setSheet({ kind: 'allocate', tx }), 380);
+                else say(`Записано: ${tx.category} ${signed(tx.amount, tx.kind as 'expense' | 'income')}`, { label: 'Отменить', run: () => store.removeTx(tx.id) });
               }
             }}
           />
@@ -175,11 +202,58 @@ export function App() {
         )}
       </Sheet>
 
+      <Sheet open={sheet?.kind === 'envelope'} label="Конверт" onClose={() => setSheet(null)}>
+        {sheet?.kind === 'envelope' && (
+          <EnvelopeSheet
+            key={sheet.env?.id ?? 'new'}
+            env={sheet.env}
+            balance={sheet.env ? envBalance(sheet.env) : 0}
+            onSave={(e) => {
+              store.saveEnvelope({ ...e, id: sheet.env?.id });
+              setSheet(null);
+            }}
+            onMove={(amount) => {
+              const env = sheet.env!;
+              const a = store.moveEnvelope(env.id, amount);
+              setSheet(null);
+              say(amount > 0 ? `В «${env.name}» +${tenge(amount)} ₸` : `Из «${env.name}» ${tenge(-amount)} ₸ в свободные`, { label: 'Отменить', run: () => store.undoAllocations([a.id]) });
+            }}
+            onDelete={() => {
+              const env = sheet.env!;
+              store.removeEnvelope(env.id);
+              setSheet(null);
+              say(`Конверт «${env.name}» удалён, деньги вернулись в свободные`);
+            }}
+          />
+        )}
+      </Sheet>
+
+      <Sheet open={sheet?.kind === 'allocate'} label="Разложить доход" onClose={() => setSheet(null)}>
+        {sheet?.kind === 'allocate' && (
+          <Allocate
+            income={sheet.tx.amount}
+            envelopes={s.envelopes}
+            plan={planIncome(sheet.tx.amount, s.envelopes, new Map(s.envelopes.map((x) => [x.id, envBalance(x)])))}
+            perDayAfter={(free) => perDayWith(sheet.tx.amount - free)}
+            onSkip={() => setSheet(null)}
+            onConfirm={(lines, from) => {
+              const given = lines.reduce((a, l) => a + l.amount, 0);
+              const recs = store.allocate(sheet.tx.id, lines);
+              const perDay = perDayWith(given);
+              setSheet(null);
+              setDone({ amount: given, count: recs.length, perDay, from });
+              setTimeout(() => say(`Разложено ${tenge(given)} ₸`, { label: 'Отменить', run: () => store.undoAllocations(recs.map((r) => r.id)) }), 900);
+            }}
+          />
+        )}
+      </Sheet>
+
       <Sheet open={sheet?.kind === 'profile'} label="Аккаунт" onClose={() => setSheet(null)}>
         <Profile s={s} onSignIn={() => signIn()} onSignOut={() => { void signOut(); setSheet(null); }} />
       </Sheet>
 
       <Toast toast={toast} onDone={() => setToast(null)} />
+      <Done data={done} onClose={() => setDone(null)} />
     </div>
   );
 }

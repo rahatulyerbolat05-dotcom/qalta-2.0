@@ -3,12 +3,13 @@
 // screen never waits for it.
 //
 // Cloud layout (rules: cloud/firestore.rules):
-//   users/{uid}/accounts/{id}   users/{uid}/txs/{id}   users/{uid}/meta/q4
+//   users/{uid}/accounts/{id}   users/{uid}/txs/{id}   users/{uid}/envelopes/{id}
+//   users/{uid}/allocations/{id}   users/{uid}/meta/q4
 // Merge is record by record (domain/merge.ts): the later updatedAt wins, deletions are
 // records with deleted: true.
 import type { Stamped } from '../domain/daily.ts';
 import { pickIncoming, type Synced } from '../domain/merge.ts';
-import { store, type Collection } from './store.ts';
+import { COLLECTIONS, store, type Collection } from './store.ts';
 
 // Public by design: access is limited by the Firestore rules, not by this key.
 const CONFIG = {
@@ -120,16 +121,12 @@ async function run() {
             const cloud = new Map(incoming.map((r) => [r.id, r]));
             const ours = pickIncoming(cloud, store.all(c)).filter((r) => r.updatedAt > 0);
             if (ours.length) push?.(c, ours);
-            if (first.size === 3) store.set({ sync: navigator.onLine ? 'on' : 'offline' });
+            if (first.size === COLLECTIONS.length) store.set({ sync: navigator.onLine ? 'on' : 'offline' });
           }
         },
         (e: unknown) => store.set({ sync: 'error', syncNote: say(e) })
       );
-    unsub = [
-      watch('accounts', F.collection(base, 'accounts')),
-      watch('txs', F.collection(base, 'txs')),
-      watch('settings', F.doc(base, 'meta', 'q4')),
-    ];
+    unsub = COLLECTIONS.map((c) => watch(c, c === 'settings' ? F.doc(base, 'meta', 'q4') : F.collection(base, c)));
     store.onLocalChange((c, recs) => push?.(c, recs));
   });
 

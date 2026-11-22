@@ -5,6 +5,8 @@ import type { State } from '../data/store.ts';
 import { Icon, Sq, catIcon } from '../ui/kit.tsx';
 import { dayHeader, dayMonth, daysWord, hhmm, signed, tenge } from '../ui/format.ts';
 import { SPRING, reduced, useSwipe, useTween } from '../ui/motion.ts';
+import type { Envelope } from '../domain/envelopes.ts';
+import { EnvelopeCard } from './Envelopes.tsx';
 
 const TONE: Record<string, string> = { card: 'dew', cash: 'dawn' };
 
@@ -215,13 +217,30 @@ export function Today(p: TodayProps) {
 
 // ───────── Деньги ─────────
 
-export function Money({ s, figure, onAccount }: { s: State; figure: DayFigure; onAccount: (a: Account) => void }) {
+interface MoneyProps {
+  s: State;
+  figure: DayFigure;
+  reserved: number;
+  envBalance: (e: Envelope) => number;
+  onAccount: (a: Account) => void;
+  onEnvelope: (e: Envelope | null) => void;
+  onPresets: () => void;
+}
+
+export function Money({ s, figure, reserved, envBalance, onAccount, onEnvelope, onPresets }: MoneyProps) {
   return (
     <div class="page">
       <h1 class="page-title rise" style="--i:0">Деньги</h1>
       {s.accounts.length === 0 && <p class="empty-d">Счета появятся после первого запуска на экране «Сегодня».</p>}
+      {s.accounts.length > 0 && (
+        <div class="totals rise" style="--i:1">
+          <div><span>Свободно</span><b>{tenge(figure.balance - reserved)} ₸</b></div>
+          <div><span>В конвертах</span><b>{tenge(reserved)} ₸</b></div>
+          <div><span>В день</span><b>{tenge(figure.allowance)} ₸</b></div>
+        </div>
+      )}
       {s.accounts.map((a, i) => (
-        <div class={`glow ${TONE[a.kind]} rise`} style={`--i:${i + 1}`} key={a.id}>
+        <div class={`glow ${TONE[a.kind]} rise`} style={`--i:${i + 2}`} key={a.id}>
           <Sq tag="button" r={26} class={`card ${TONE[a.kind]}`} onClick={() => onAccount(a)} aria-label={`${a.name}: изменить остаток или перевести`}>
             <span class="card-name">{a.name}</span>
             <span class="card-sum">{tenge(accountBalance(a, s.txs))} ₸</span>
@@ -230,14 +249,26 @@ export function Money({ s, figure, onAccount }: { s: State; figure: DayFigure; o
         </div>
       ))}
       {s.accounts.length > 0 && (
-        <p class="muted-d rise" style="--i:3">
-          Всего {tenge(figure.balance)} ₸ · до {dayMonth(s.settings.until)} это {tenge(figure.allowance)} ₸ в день.
-        </p>
+        <>
+          <div class="section-head rise" style="--i:4">
+            <h2>Конверты</h2>
+            <button class="pill pill-main small" onClick={() => onEnvelope(null)}>Новый</button>
+          </div>
+          {s.envelopes.length === 0 ? (
+            <Sq r={26} class="soon rise" style="--i:5">
+              <b>Решите заранее, куда пойдёт каждый доход</b>
+              <span>Конверт откладывает часть дохода сразу, как только он пришёл. Эти деньги не попадают в цифру дня.</span>
+              <button class="pill pill-main" onClick={onPresets}>Создать «Близким 20 %» и «Подушка 10 %»</button>
+            </Sq>
+          ) : (
+            <div class="env-grid rise" style="--i:5">
+              {s.envelopes.map((e, i) => (
+                <EnvelopeCard key={e.id} env={e} index={i} balance={envBalance(e)} onOpen={() => onEnvelope(e)} />
+              ))}
+            </div>
+          )}
+        </>
       )}
-      <Sq r={26} class="soon rise" style="--i:4">
-        <b>Конверты и распределение дохода</b>
-        <span>Следующий этап: «близким», «подушка», обязательные платежи и ритуал гонорара.</span>
-      </Sq>
     </div>
   );
 }

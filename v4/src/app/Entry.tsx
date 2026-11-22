@@ -3,6 +3,7 @@ import { amountOf, describe, evaluate, groupThousands, hasOperator, press, type 
 import type { Account, Tx } from '../domain/daily.ts';
 import { momentOn, ymd } from '../domain/daily.ts';
 import { orderedCategories } from '../domain/categories.ts';
+import type { Envelope } from '../domain/envelopes.ts';
 import { parsePhrase } from '../domain/parse.js';
 import { Icon, Sq, catIcon } from '../ui/kit.tsx';
 import { tenge } from '../ui/format.ts';
@@ -35,6 +36,7 @@ export interface EntryResult {
   accountId: string;
   at: number;
   note: string;
+  envelopeId?: string;
 }
 
 interface Props {
@@ -42,12 +44,14 @@ interface Props {
   editing: Tx | null;
   accounts: Account[];
   txs: Tx[];
+  envelopes: Envelope[];
+  envBalance: (e: Envelope) => number;
   left: number; // what is left of today's figure (with the edited entry taken out)
   onSave: (e: EntryResult) => void;
   onDelete?: () => void;
 }
 
-export function Entry({ mode: initialMode, editing, accounts, txs, left, onSave, onDelete }: Props) {
+export function Entry({ mode: initialMode, editing, accounts, txs, envelopes, envBalance, left, onSave, onDelete }: Props) {
   const now = Date.now();
   const today = ymd(now);
   const [mode, setMode] = useState<Kind>(editing && editing.kind !== 'transfer' ? editing.kind : initialMode);
@@ -56,6 +60,7 @@ export function Entry({ mode: initialMode, editing, accounts, txs, left, onSave,
   const [suggested, setSuggested] = useState<string[]>([]);
   const [day, setDay] = useState(editing ? ymd(editing.at) : today);
   const [phrase, setPhrase] = useState(editing?.note ?? '');
+  const [envId, setEnvId] = useState(editing?.envelopeId ?? '');
   const [acc, setAcc] = useState(() => {
     if (editing) return editing.accountId;
     try {
@@ -143,7 +148,12 @@ export function Entry({ mode: initialMode, editing, accounts, txs, left, onSave,
   let hint = '';
   let warn = false;
   if (divZero) [hint, warn] = ['На ноль делить нельзя', true];
-  else if (mode === 'income') hint = 'Доход прибавится к счёту и поднимет цифру дня';
+  else if (mode === 'income') hint = envelopes.length ? 'После записи доход можно сразу разложить по конвертам' : 'Доход прибавится к счёту и поднимет цифру дня';
+  else if (envId) {
+    const e = envelopes.find((x) => x.id === envId);
+    const rest = (e ? envBalance(e) : 0) + (editing?.envelopeId === envId ? editing.amount : 0) - amount;
+    [hint, warn] = rest >= 0 ? [`Из конверта «${e?.name}»: в нём останется ${tenge(rest)} ₸`, false] : [`В конверте «${e?.name}» не хватает ${tenge(-rest)} ₸`, true];
+  }
   else if (!isToday) hint = 'Запись в прошлый день пересчитает остаток, а не сегодняшнюю цифру';
   else if (after >= 0) hint = `После записи на сегодня останется ${tenge(after)} ₸`;
   else [hint, warn] = [`Больше цифры дня на ${tenge(-after)} ₸`, true];
@@ -157,7 +167,7 @@ export function Entry({ mode: initialMode, editing, accounts, txs, left, onSave,
     const p = parsePhrase(phrase, Date.now()) as { amount: number; rest: string };
     const note = (p.amount ? p.rest : phrase).trim().slice(0, 200);
     const keepTime = editing && ymd(editing.at) === day;
-    onSave({ kind: mode, amount, category: cat || 'Прочее', accountId: acc, at: keepTime ? editing!.at : momentOn(day, Date.now()), note });
+    onSave({ kind: mode, amount, category: cat || 'Прочее', accountId: acc, at: keepTime ? editing!.at : momentOn(day, Date.now()), note, envelopeId: mode === 'expense' && envId ? envId : undefined });
   }
 
   const shown = expr ? groupThousands(amount) : '0';
@@ -225,6 +235,17 @@ export function Entry({ mode: initialMode, editing, accounts, txs, left, onSave,
           </label>
         </div>
       </div>
+
+      {mode === 'expense' && envelopes.length > 0 && (
+        <div class="chips env-chips" role="radiogroup" aria-label="Откуда деньги">
+          <button role="radio" aria-checked={!envId} class={!envId ? 'on' : ''} onClick={() => setEnvId('')}>Из свободных</button>
+          {envelopes.map((e) => (
+            <button key={e.id} role="radio" aria-checked={envId === e.id} class={envId === e.id ? 'on' : ''} onClick={() => setEnvId(e.id)}>
+              Из «{e.name}»
+            </button>
+          ))}
+        </div>
+      )}
 
       <div class="ops">
         {OPS.map(([k, label, aria]) => (

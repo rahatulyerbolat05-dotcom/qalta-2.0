@@ -158,3 +158,39 @@ test('merge converges: two devices exchanging in any order end with the same rec
   assert.equal(x.get('a').v, 2);
   assert.equal(x.get('b').deleted, true);
 });
+
+import { envelopeBalance, reservedTotal, planIncome } from '../src/domain/envelopes.ts';
+
+const env = (o) => ({ updatedAt: 1, kind: 'reserve', ruleMode: 'percent', ruleValue: 0, target: 0, order: 0, name: o.id, ...o });
+const alloc = (o) => ({ id: Math.random().toString(36), updatedAt: 1, at: NOW, incomeTxId: '', note: '', ...o });
+
+test('income is split: fixed amounts first, then percents; rounded to hundreds; the rest is free', () => {
+  const envs = [env({ id: 'close', ruleValue: 20, order: 0 }), env({ id: 'cushion', ruleValue: 10, order: 1 }), env({ id: 'bills', ruleMode: 'fixed', ruleValue: 45_000, kind: 'obligation', order: 2 })];
+  const p = planIncome(286_000, envs, new Map());
+  assert.deepEqual(p.lines, [{ envelopeId: 'close', amount: 57_200 }, { envelopeId: 'cushion', amount: 28_600 }, { envelopeId: 'bills', amount: 45_000 }]);
+  assert.equal(p.free, 286_000 - 57_200 - 28_600 - 45_000);
+  const small = planIncome(30_000, envs, new Map());
+  assert.equal(small.lines.find((l) => l.envelopeId === 'bills').amount, 30_000, 'a fixed amount takes what there is');
+  assert.equal(small.free, 0);
+  assert.equal(small.lines.length, 1, 'percents get nothing once the income is used up');
+});
+
+test('a goal takes no more than it still needs; envelopes without a rule are skipped', () => {
+  const envs = [env({ id: 'goal', kind: 'goal', ruleValue: 50, target: 100_000 }), env({ id: 'manual', ruleMode: 'none', ruleValue: 0 }), env({ id: 'gone', ruleValue: 10, deleted: true })];
+  const p = planIncome(100_000, envs, new Map([['goal', 80_000]]));
+  assert.deepEqual(p.lines, [{ envelopeId: 'goal', amount: 20_000 }]);
+  assert.equal(p.free, 80_000);
+});
+
+test('envelope money is not free money; spending from an envelope does not touch the day figure', () => {
+  const cushion = env({ id: 'cushion' });
+  const allocs = [alloc({ envelopeId: 'cushion', amount: 28_000 }), alloc({ envelopeId: 'cushion', amount: -3000 })];
+  const fromEnv = tx({ kind: 'expense', amount: 5000, accountId: 'card', at: NOW, envelopeId: 'cushion' });
+  assert.equal(envelopeBalance(cushion, allocs, [fromEnv]), 20_000);
+  const reserved = reservedTotal([cushion], allocs, [fromEnv]);
+  const f = dayFigure([card], [fromEnv], NOW, '2026-12-05', reserved);
+  assert.equal(f.spent, 0, 'paid from the envelope, not from today');
+  assert.equal(f.allowance, Math.floor((135_000 - 20_000) / 14));
+  const before = dayFigure([card], [], NOW, '2026-12-05', reservedTotal([cushion], allocs, []));
+  assert.equal(before.allowance, f.allowance, 'the free money is the same before and after paying from the envelope');
+});

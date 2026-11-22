@@ -80,6 +80,8 @@ test("nothing outside the per-user collections (prototype + Qalta 4) and the bot
     "match /meta/{docId} {",
     "match /accounts/{id} {",   // Qalta 4 (v4/src/data/sync.ts)
     "match /txs/{id} {",        // Qalta 4
+    "match /envelopes/{id} {",  // Qalta 4
+    "match /allocations/{id} {",// Qalta 4
     "match /botLinks/{code} {"
   ]);
   assert.ok(!/allow [^;]*:\s*if\s+true/.test(rules), "no unconditional allow");
