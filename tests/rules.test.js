@@ -70,7 +70,7 @@ test("amount and time bounds agree between the rules and the client", () => {
   assert.match(rules, /n < 8640000000000000/);
 });
 
-test("nothing outside the three per-user collections and the bot link codes is reachable", () => {
+test("nothing outside the per-user collections (prototype + Qalta 4) and the bot link codes is reachable", () => {
   const matches = (rules.match(/^\s*match [^\n]*\{\s*$/gm) || []).map(s => s.trim());
   assert.deepEqual(matches, [
     "match /databases/{database}/documents {",
@@ -78,6 +78,8 @@ test("nothing outside the three per-user collections and the bot link codes is r
     "match /ops/{id} {",
     "match /debts/{id} {",
     "match /meta/{docId} {",
+    "match /accounts/{id} {",   // Qalta 4 (v4/src/data/sync.ts)
+    "match /txs/{id} {",        // Qalta 4
     "match /botLinks/{code} {"
   ]);
   assert.ok(!/allow [^;]*:\s*if\s+true/.test(rules), "no unconditional allow");

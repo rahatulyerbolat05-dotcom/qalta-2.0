@@ -86,7 +86,46 @@ service cloud.firestore {
       }
       match /meta/{docId} {
         allow read, delete: if isOwner();
-        allow create, update: if isOwner() && docId == 'settings' && validSettings(request.resource.data);
+        allow create, update: if isOwner() && (
+          (docId == 'settings' && validSettings(request.resource.data))
+          || (docId == 'q4' && q4settings(request.resource.data)));
+      }
+
+      // ───── Qalta 4 (qalta4/src/data/sync.ts) ─────
+      // One document per account and per operation; a deletion is an update with deleted: true,
+      // so an offline device cannot bring a deleted entry back. Merge: later updatedAt wins.
+      function q4stamp(d) {
+        return d.updatedAt is number && d.updatedAt > 0 && d.updatedAt <= 4102444800000
+          && (!('deviceId' in d) || (d.deviceId is string && d.deviceId.size() <= 64))
+          && (!('deleted' in d) || d.deleted is bool);
+      }
+      function q4account(d, id) {
+        return d.keys().hasOnly(['id', 'name', 'kind', 'openingAmount', 'openingAt', 'order', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.name is string && d.name.size() <= 40 && d.kind in ['card', 'cash']
+          && amount(d.openingAmount) && moment(d.openingAt)
+          && d.order is int && d.order >= 0 && d.order < 100 && q4stamp(d);
+      }
+      function q4tx(d, id) {
+        return d.keys().hasOnly(['id', 'kind', 'amount', 'accountId', 'toAccountId', 'category', 'note', 'at', 'createdAt', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.kind in ['expense', 'income', 'transfer']
+          && d.amount is int && d.amount > 0 && d.amount <= 999999999
+          && d.accountId is string && d.accountId.size() <= 40
+          && (!('toAccountId' in d) || (d.toAccountId is string && d.toAccountId.size() <= 40))
+          && d.category is string && d.category.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && moment(d.at) && moment(d.createdAt) && q4stamp(d);
+      }
+      function q4settings(d) {
+        return d.keys().hasOnly(['id', 'until', 'updatedAt', 'deviceId'])
+          && d.until is string && d.until.size() == 10 && q4stamp(d);
+      }
+      match /accounts/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4account(request.resource.data, id);
+      }
+      match /txs/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4tx(request.resource.data, id);
       }
     }
 

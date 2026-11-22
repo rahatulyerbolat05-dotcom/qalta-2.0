@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F1A21">
+<meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Qalta">
+<!--CSP-->
+<title>Qalta</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="icon" type="image/png" href="./icons/icon-192.png">
+<!--SPLASH-->
+<style>
+/* Critical CSS: tokens, the launch layer and the hero that the first frame paints.
+   Everything else arrives with the bundle. */
+:root{--ink:#0F1A21;--ink-2:#1C2A32;--dew:#7FA8A3;--dew-deep:#3F5E5A;--mist:#C5D1D0;--dawn:#F4EFE6;--glint:#C8A96A;--glint-deep:#7A5F22;
+--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;--spring:cubic-bezier(.32,.72,0,1);
+--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--dawn);font-family:var(--font);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#launch{position:fixed;inset:0;z-index:100;background:var(--dawn);pointer-events:none;animation:launch-out 280ms cubic-bezier(.45,0,.25,1) 1200ms forwards}
+html.go #launch,html.late #launch{animation-delay:0ms}
+@keyframes launch-out{to{opacity:0;visibility:hidden}}
+.rise{animation:rise 240ms var(--spring) calc(1480ms + var(--i,0) * 40ms) both}
+html.go .rise,html.late .rise{animation-delay:calc(200ms + var(--i,0) * 40ms)}
+html.static .rise{animation:none}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#launch{display:none}.rise{animation:none}}
+.screen{position:fixed;inset:0;overflow:hidden;background:radial-gradient(120% 55% at 90% 0%,#2C4A4C 0%,var(--ink) 58%)}
+.hero{position:relative;padding:calc(var(--safe-top) + 12px) 20px 0}
+.hero-top{display:flex;align-items:center;justify-content:space-between;height:44px}
+.avatar{width:44px;height:44px;border:0;border-radius:22px;background:var(--mist);color:var(--ink);font-size:17px;font-weight:600}
+.until{height:36px;padding:0 14px;border:0;border-radius:18px;background:rgba(255,255,255,.08);color:var(--mist);font-size:14px;display:flex;align-items:center;gap:6px;position:relative}
+.hero-label{margin:28px 0 6px;font-size:15px;color:var(--mist)}
+.hero-figure{margin:0;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums}
+.hero-figure .num{font-size:56px;font-weight:600;letter-spacing:-.03em;line-height:1}
+.hero-figure .cur{font-size:28px;font-weight:500;color:var(--mist)}
+.hero-figure .num:empty::before{content:"\2007\2007\2007";display:inline-block;width:150px;height:44px;border-radius:12px;background:rgba(255,255,255,.08)}
+</style>
+<script>
+(function () {
+  var html = document.documentElement;
+  html.classList.add('launching');
+  setTimeout(function () { if (!html.classList.contains('go')) html.classList.add('late'); }, 1200);
+  window.__qaltaBoot = null;
+  try {
+    var b = JSON.parse(localStorage.getItem('qalta4:boot') || 'null');
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    var today = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    if (b && b.day === today) window.__qaltaBoot = b;
+  } catch (e) {}
+})();
+</script>
+<script type="module" src="./src/main.tsx"></script>
+</head>
+<body>
+<div id="launch" aria-hidden="true"></div>
+<div id="boot" class="screen" aria-hidden="true">
+  <div class="hero">
+    <div class="hero-top rise" style="--i:0"><span class="until" style="width:196px"></span><span style="width:44px;height:44px;border-radius:22px;background:rgba(255,255,255,.1)"></span></div>
+    <p class="hero-label rise" style="--i:1">Можно потратить сегодня</p>
+    <p class="hero-figure rise" style="--i:1"><span class="num" id="boot-left"></span><span class="cur">₸</span></p>
+    <div class="rise" style="--i:2;display:flex;gap:8px;margin-top:18px"><span style="width:112px;height:40px;border-radius:20px;background:var(--dawn)"></span><span style="width:84px;height:40px;border-radius:20px;background:rgba(255,255,255,.12)"></span></div>
+    <div class="rise" style="--i:3;margin:24px -4px 0;height:74px;border-radius:26px;background:rgba(255,255,255,.07)"></div>
+  </div>
+</div>
+<script>
+(function () {
+  var el = document.getElementById('boot-left'), b = window.__qaltaBoot;
+  if (el && b) el.textContent = String(Math.max(0, b.left)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
+})();
+</script>
+<div id="app"></div>
+<noscript>Для работы Qalta нужен JavaScript.</noscript>
+</body>
+</html>

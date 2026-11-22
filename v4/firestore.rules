@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Data layout (see sync-engine.js):
+    //   users/{uid}/ops/{id}        one document per operation
+    //   users/{uid}/debts/{id}      one document per debt (open and closed)
+    //   users/{uid}/meta/settings   language, accent, categories (+colours, icons), budget, opening balances
+    // Every document carries _u (update stamp) and _d (device id); a deleted
+    // record is a tombstone {_del:true,_u,_d}. Firestore itself caps a document
+    // at 1 MiB, so no size() check (request.resource has no size()).
+    // Numbers are bounded here as well as in the client: 999 999 999 is the largest amount the
+    // app accepts, 4102444800000 (year 2100) the latest stamp, 8640000000000000 the largest time.
+    match /users/{uid} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function stamps(d) {
+        return d._u is number && d._u > 0 && d._u <= 4102444800000
+          && d._d is string && d._d.size() <= 64;
+      }
+      function tombstone(d) {
+        return d.keys().hasOnly(['_del', '_u', '_d']) && d._del == true && stamps(d);
+      }
+      function amount(n) {
+        return n is number && n >= -999999999 && n <= 999999999;
+      }
+      function moment(n) {
+        return n is number && n > 0 && n < 8640000000000000;
+      }
+
+      function validOp(d) {
+        return tombstone(d) || (
+          d.keys().hasOnly(['id', 'date', 'cat', 'note', 'sum', 'pay', 'ts', '_u', '_d'])
+          && d.id is number && d.date is string && d.date.size() <= 5
+          && d.cat is string && d.cat.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && amount(d.sum) && d.pay in ['cash', 'card']
+          && (!('ts' in d) || moment(d.ts))
+          && stamps(d));
+      }
+
+      // Debts are written as field patches (merge), so only the final merged
+      // document is validated; the optional fields may be absent.
+      function validDebt(d) {
+        return tombstone(d) || (
+          d.keys().hasOnly(['id', 'who', 'note', 'sum', 'mine', 'paid', 'log', 'closed', 'closedAt', 'reason', 'due', 'ts', '_u', '_d'])
+          && d.id is number && d.who is string && d.who.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && amount(d.sum) && d.sum >= 0 && d.mine is bool
+          && (!('paid' in d) || amount(d.paid))
+          && (!('log' in d) || (d.log is list && d.log.size() <= 500))
+          && (!('closed' in d) || d.closed is bool)
+          && (!('closedAt' in d) || (d.closedAt is string && d.closedAt.size() <= 10))
+          && (!('reason' in d) || (d.reason is string && d.reason.size() <= 120))
+          && (!('due' in d) || (d.due is string && d.due.size() <= 10))
+          && (!('ts' in d) || moment(d.ts))
+          && stamps(d));
+      }
+
+      function validSettings(d) {
+        return d.keys().hasOnly(['hex', 'skin', 'set', 'lang', 'eCats', 'iCats', 'catColors', 'catSizes', 'catIcons', 'budget', 'openCash', 'openCard', 'openCashAt', 'openCardAt', '_u', '_d'])
+          && (!('hex' in d) || (d.hex is string && d.hex.size() <= 9))
+          && (!('skin' in d) || (d.skin is int && d.skin >= 0 && d.skin <= 2))
+          && (!('set' in d) || (d.set is int && d.set >= 0 && d.set <= 4))
+          && (!('lang' in d) || d.lang in ['ru', 'kz', 'en'])
+          && (!('eCats' in d) || (d.eCats is list && d.eCats.size() <= 200))
+          && (!('iCats' in d) || (d.iCats is list && d.iCats.size() <= 200))
+          && (!('catColors' in d) || (d.catColors is map && d.catColors.size() <= 300))
+          && (!('catSizes' in d) || (d.catSizes is map && d.catSizes.size() <= 300))
+          && (!('catIcons' in d) || (d.catIcons is map && d.catIcons.size() <= 300))
+          && (!('budget' in d) || (d.budget is number && d.budget > 0 && d.budget <= 999999999))
+          && (!('openCash' in d) || (d.openCash is number && d.openCash >= -99999999900 && d.openCash <= 99999999900))
+          && (!('openCard' in d) || (d.openCard is number && d.openCard >= -99999999900 && d.openCard <= 99999999900))
+          && (!('openCashAt' in d) || moment(d.openCashAt))
+          && (!('openCardAt' in d) || moment(d.openCardAt))
+          && stamps(d);
+      }
+
+      match /ops/{id} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && validOp(request.resource.data);
+      }
+      match /debts/{id} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && validDebt(request.resource.data);
+      }
+      match /meta/{docId} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && (
+          (docId == 'settings' && validSettings(request.resource.data))
+          || (docId == 'q4' && q4settings(request.resource.data)));
+      }
+
+      // ───── Qalta 4 (qalta4/src/data/sync.ts) ─────
+      // One document per account and per operation; a deletion is an update with deleted: true,
+      // so an offline device cannot bring a deleted entry back. Merge: later updatedAt wins.
+      function q4stamp(d) {
+        return d.updatedAt is number && d.updatedAt > 0 && d.updatedAt <= 4102444800000
+          && (!('deviceId' in d) || (d.deviceId is string && d.deviceId.size() <= 64))
+          && (!('deleted' in d) || d.deleted is bool);
+      }
+      function q4account(d, id) {
+        return d.keys().hasOnly(['id', 'name', 'kind', 'openingAmount', 'openingAt', 'order', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.name is string && d.name.size() <= 40 && d.kind in ['card', 'cash']
+          && amount(d.openingAmount) && moment(d.openingAt)
+          && d.order is int && d.order >= 0 && d.order < 100 && q4stamp(d);
+      }
+      function q4tx(d, id) {
+        return d.keys().hasOnly(['id', 'kind', 'amount', 'accountId', 'toAccountId', 'category', 'note', 'at', 'createdAt', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.kind in ['expense', 'income', 'transfer']
+          && d.amount is int && d.amount > 0 && d.amount <= 999999999
+          && d.accountId is string && d.accountId.size() <= 40
+          && (!('toAccountId' in d) || (d.toAccountId is string && d.toAccountId.size() <= 40))
+          && d.category is string && d.category.size() <= 60
+          && d.note is string && d.note.size() <= 200
+          && moment(d.at) && moment(d.createdAt) && q4stamp(d);
+      }
+      function q4settings(d) {
+        return d.keys().hasOnly(['id', 'until', 'updatedAt', 'deviceId'])
+          && d.until is string && d.until.size() == 10 && q4stamp(d);
+      }
+      match /accounts/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4account(request.resource.data, id);
+      }
+      match /txs/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4tx(request.resource.data, id);
+      }
+    }
+
+    // Telegram bot link (see bot/core.js): the signed-in app creates a one-time code for its own uid, valid for
+    // at most 30 minutes; nobody can read, change or list codes from a client — only the bot's service account
+    // (which is not subject to these rules) reads and deletes them. botUsers/* (the bot's state) has no client
+    // access at all: there is no match for it.
+    match /botLinks/{code} {
+      allow create: if request.auth != null
+        && code.size() >= 16 && code.size() <= 64 && code.matches('^[A-Za-z0-9_-]+$')
+        && request.resource.data.keys().hasOnly(['uid', 'exp', 'tz'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.exp is number
+        && request.resource.data.exp > request.time.toMillis()
+        && request.resource.data.exp <= request.time.toMillis() + 1800000
+        && request.resource.data.tz is string && request.resource.data.tz.size() <= 64;
+    }
+  }
+}

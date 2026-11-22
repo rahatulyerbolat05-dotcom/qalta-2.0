@@ -1,0 +1,28 @@
+{
+  "name": "qalta",
+  "version": "4.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node tools/postbuild.mjs",
+    "preview": "vite preview",
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dexie": "4.4.7",
+    "firebase": "13.4.0",
+    "preact": "11.2.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.13",
+    "@preact/preset-vite": "2.10.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.7"
+  }
+}

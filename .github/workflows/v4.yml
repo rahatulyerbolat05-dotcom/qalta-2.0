@@ -1,0 +1,40 @@
+name: Qalta 4 checks
+
+on:
+  push:
+    paths: ['v4/**', 'firestore.rules', 'tests/rules.test.js', '.github/workflows/v4.yml']
+  pull_request:
+    paths: ['v4/**', 'firestore.rules', 'tests/rules.test.js', '.github/workflows/v4.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - name: Prototype tests (shared Firestore rules)
+        run: npm test
+      - name: Rules are the same file for both apps
+        run: cmp firestore.rules v4/firestore.rules
+      - name: Install
+        working-directory: v4
+        run: npm ci
+      - name: Audit
+        working-directory: v4
+        run: npm audit --audit-level=high
+      - name: Typecheck
+        working-directory: v4
+        run: npm run typecheck
+      - name: Tests
+        working-directory: v4
+        run: npm test
+      - name: Build and first-screen budget
+        working-directory: v4
+        run: npm run build
