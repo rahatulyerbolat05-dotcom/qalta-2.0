@@ -6,6 +6,8 @@
 //   users/{uid}/ops/{id}      operations, written whole with _u/_d exactly as the app writes them; undo = tombstone
 //   users/{uid}/meta/settings read only: language, categories, budget
 //   botLinks/{code}           one-time link codes created by the signed-in app ({ uid, exp, tz }); read and deleted here
+//   Qalta 4 users (botUsers.app == "v4", linked from v4/): users/{uid}/txs/tg{id} in that app's format, accounts
+//                             and meta/q4 read; users/{uid}/checkins/{day} written by the evening reminder's button
 //   botUsers/tg_{telegramId}  the link and the bot's own state (time zone, daily counter, last operation,
 //                             the pending question, a cache of the person's history). Outside users/{uid}: the sync
 //                             engine would treat an unknown document there as deleted locally and erase it.
@@ -21,6 +23,7 @@ const DEVICE = "tg";
 const DAILY_LIMIT = 300;                    // operations through the bot per person per day
 const MEMO_TTL = 12 * 3600 * 1000;          // the history cache is rebuilt twice a day
 const DEFAULT_TZ = "Asia/Almaty";
+const V4_INCOME = ["Гонорар"].concat(QL.DEFAULT_CATS.income);
 
 // ── time: the person's wall clock, read through this runtime's local-time functions ──
 // logic.js and parse.js work in local time; a Worker runs in UTC. Shifting "now" by the difference makes their
@@ -89,6 +92,7 @@ function idFor(m, fallbackTs) {
 
 function createBot(o) {
   const tg = o.tg, db = o.db, now = o.now || Date.now, log = o.log || (() => {});
+  const appUrl = o.appUrl || "https://qalta-v4.web.app";
   // the network is loaded on first use (o.model may be a function): linking and reports never pay for it
   let modelCache = typeof o.model === "function" ? undefined : o.model || null;
   const model = () => { if (modelCache === undefined) { try { modelCache = o.model() || null; } catch (e) { log("model: " + e.message); modelCache = null; } } return modelCache; };
@@ -96,6 +100,12 @@ function createBot(o) {
 
   async function context(link, from) {
     const uid = link.data.uid, tz = validTz(link.data.tz), t0 = now(), shift = shiftFor(tz, t0);
+    if (link.data.app === "v4") {
+      const lang = langOf(null, from);
+      const accs = await db.query("users/" + uid, "accounts");
+      const accounts = accs.map(d => d.data).filter(a => a && !a.deleted && typeof a.id === "string").sort((a, b) => a.order - b.order);
+      return { uid, tz, lang, t: S[lang], cats: { expense: QL.DEFAULT_CATS.expense, income: V4_INCOME }, s: {}, shift, now: t0, nowS: t0 + shift, link: link.data, key: userKey(from), accounts, v4: true };
+    }
     const st = await db.get("users/" + uid + "/meta/settings");
     const s = (st && Sync.clean("meta", st.data)) || {};
     const lang = langOf(s.lang, from);
@@ -113,11 +123,37 @@ function createBot(o) {
     if (ctx.mem) return ctx.mem;
     const d = ctx.link;
     if (d.memo && d.memoAt > ctx.now - MEMO_TTL) { try { return (ctx.mem = bare(d.memo)); } catch (e) {} }
-    const recent = await db.query("users/" + ctx.uid, "ops", { orderBy: "ts", desc: true, limit: 300 });
-    ctx.mem = CAT.memory(recent.map(x => x.data).filter(x => x && !x._del));
+    const recent = ctx.v4
+      ? (await db.query("users/" + ctx.uid, "txs", { orderBy: "at", desc: true, limit: 300 })).map(x => fromTx(ctx, x.data)).filter(Boolean)
+      : (await db.query("users/" + ctx.uid, "ops", { orderBy: "ts", desc: true, limit: 300 })).map(x => x.data).filter(x => x && !x._del);
+    ctx.mem = CAT.memory(recent);
     ctx.memoAt = ctx.now;
     return ctx.mem;
   }
+  // ── Qalta 4: its documents are read and written through the prototype's operation shape, so the rest of the
+  // bot (phrases, questions, undo, categories, reports) is the same for both apps ──
+  const opPath = (ctx, id) => "users/" + ctx.uid + (ctx.v4 ? "/txs/tg" : "/ops/") + id;
+  function fromTx(ctx, d) {
+    if (!d || d.deleted || (d.kind !== "expense" && d.kind !== "income") || typeof d.amount !== "number" || typeof d.at !== "number") return null;
+    const acc = ctx.accounts.find(a => a.id === d.accountId);
+    return { id: String(d.id).replace(/^tg/, ""), date: QL.ddmm(d.at + ctx.shift), ts: d.at, cat: d.category, note: d.note || "", sum: (d.kind === "income" ? 1 : -1) * d.amount, pay: acc && acc.kind === "cash" ? "cash" : "card", _tx: d };
+  }
+  function toTx(ctx, op) {
+    const prev = op._tx || null;
+    const acc = ctx.accounts.find(a => a.kind === op.pay) || ctx.accounts[0];
+    return { id: "tg" + op.id, kind: op.sum > 0 ? "income" : "expense", amount: Math.abs(op.sum), accountId: acc.id, category: op.cat, note: String(op.note || "").slice(0, 200), at: op.ts, createdAt: prev ? prev.createdAt : ctx.now, updatedAt: Math.max(ctx.now, prev ? prev.updatedAt + 1 : 0), deviceId: DEVICE };
+  }
+  async function getOp(ctx, id) {
+    const doc = await db.get(opPath(ctx, id));
+    if (!doc) return null;
+    if (ctx.v4) return fromTx(ctx, doc.data);
+    return doc.data._del ? null : doc.data;
+  }
+  async function opsSince(ctx, from) {
+    if (ctx.v4) return (await db.query("users/" + ctx.uid, "txs", { where: ["at", ">=", from] })).map(d => fromTx(ctx, d.data)).filter(Boolean);
+    return (await db.query("users/" + ctx.uid, "ops", { where: ["ts", ">=", from] })).map(d => d.data).filter(o => o && !o._del && typeof o.sum === "number");
+  }
+
   function memoPatch(ctx) { return ctx.mem ? { memo: JSON.stringify(ctx.mem), memoAt: ctx.memoAt || ctx.link.memoAt || ctx.now } : {}; }
 
   function dayWord(ctx, ts) {
@@ -132,6 +168,13 @@ function createBot(o) {
 
   // ── writing ──
   async function writeOp(ctx, op) {
+    if (ctx.v4) {
+      if (!ctx.accounts.length) throw new Error("no accounts");
+      const d = toTx(ctx, op);
+      if (!(d.amount > 0 && d.amount <= 999999999 && Number.isInteger(d.amount)) || typeof d.category !== "string" || d.category.length > 60) throw new Error("operation would not pass the app's rules");
+      await db.set(opPath(ctx, op.id), d);
+      return Object.assign({}, op, { note: d.note, _tx: d });
+    }
     const c = Sync.clean("ops", op);
     if (!c || c.cat !== op.cat || c.sum !== op.sum) throw new Error("operation would not pass the app's validation");
     await db.set("users/" + ctx.uid + "/ops/" + c.id, Object.assign({}, c, { _u: ctx.now, _d: DEVICE }));
@@ -149,6 +192,7 @@ function createBot(o) {
   async function record(ctx, chat, text, id) {
     const t = ctx.t, day = QL.ymd(ctx.nowS);
     if (ctx.link.day === day && (ctx.link.count || 0) >= DAILY_LIMIT) return tg.send(chat, t.limit);
+    if (ctx.v4 && !ctx.accounts.length) return tg.send(chat, t.noAccounts);
     const p = QP.parsePhrase(text, ctx.nowS);
     if (p.tooBig) return tg.send(chat, t.tooBig);
     if (!(p.amount > 0)) return tg.send(chat, t.noAmount);
@@ -168,29 +212,31 @@ function createBot(o) {
   }
 
   async function undo(ctx, chat, id, editId) {
-    const path = "users/" + ctx.uid + "/ops/" + id, doc = await db.get(path);
-    if (!doc || doc.data._del) return editId ? tg.edit(chat, editId, ctx.t.gone) : tg.send(chat, ctx.t.nothingToUndo);
-    await db.set(path, { _del: true, _u: ctx.now, _d: DEVICE });
-    const gone = Sync.clean("ops", doc.data);
+    const path = opPath(ctx, id), doc = await db.get(path);
+    const live = doc && (ctx.v4 ? fromTx(ctx, doc.data) : doc.data._del ? null : doc.data);
+    if (!live) return editId ? tg.edit(chat, editId, ctx.t.gone) : tg.send(chat, ctx.t.nothingToUndo);
+    if (ctx.v4) await db.set(path, Object.assign({}, doc.data, { deleted: true, updatedAt: Math.max(ctx.now, (doc.data.updatedAt || 0) + 1), deviceId: DEVICE }));
+    else await db.set(path, { _del: true, _u: ctx.now, _d: DEVICE });
+    const gone = ctx.v4 ? live : Sync.clean("ops", doc.data);
     await memory(ctx);
     if (gone) bump(ctx.mem, gone, -1);    // an undone entry teaches nothing
     await saveState(ctx, Object.assign(ctx.link.last === String(id) ? { last: undefined } : {}, memoPatch(ctx)));
-    const text = QL.fill(ctx.t.undone, { cat: trCat(doc.data.cat, ctx.lang), amount: money(doc.data.sum, ctx.lang, true) });
+    const text = QL.fill(ctx.t.undone, { cat: trCat(live.cat, ctx.lang), amount: money(live.sum, ctx.lang, true) });
     return editId ? tg.edit(chat, editId, text) : tg.send(chat, text);
   }
   async function showCats(ctx, chat, id, editId) {
-    const doc = await db.get("users/" + ctx.uid + "/ops/" + id);
-    if (!doc || doc.data._del) return tg.edit(chat, editId, ctx.t.gone);
-    const list = ctx.cats[doc.data.sum > 0 ? "income" : "expense"].slice(0, 40);
-    const buttons = rows(list.map((c, i) => ({ text: (c === doc.data.cat ? "• " : "") + trCat(c, ctx.lang), data: "s:" + id + ":" + i })), 3);
-    return tg.edit(chat, editId, QL.fill(ctx.t.pickCat, { amount: money(doc.data.sum, ctx.lang, true) }), buttons);
+    const op = await getOp(ctx, id);
+    if (!op) return tg.edit(chat, editId, ctx.t.gone);
+    const list = ctx.cats[op.sum > 0 ? "income" : "expense"].slice(0, 40);
+    const buttons = rows(list.map((c, i) => ({ text: (c === op.cat ? "• " : "") + trCat(c, ctx.lang), data: "s:" + id + ":" + i })), 3);
+    return tg.edit(chat, editId, QL.fill(ctx.t.pickCat, { amount: money(op.sum, ctx.lang, true) }), buttons);
   }
   async function setCat(ctx, chat, id, i, editId) {
-    const path = "users/" + ctx.uid + "/ops/" + id, doc = await db.get(path);
-    if (!doc || doc.data._del) return tg.edit(chat, editId, ctx.t.gone);
-    const cat = ctx.cats[doc.data.sum > 0 ? "income" : "expense"][i];
+    const found = await getOp(ctx, id);
+    if (!found) return tg.edit(chat, editId, ctx.t.gone);
+    const cat = ctx.cats[found.sum > 0 ? "income" : "expense"][i];
     if (!cat) return null;
-    const before = Sync.clean("ops", doc.data);
+    const before = ctx.v4 ? found : Sync.clean("ops", found);
     const op = await writeOp(ctx, Object.assign({}, before, { cat }));
     await memory(ctx);
     bump(ctx.mem, before, -1);            // the filing moves: next time the same words go here
@@ -201,8 +247,7 @@ function createBot(o) {
 
   async function month(ctx, chat) {
     const t = ctx.t, lang = ctx.lang, range = QL.periodRange("month", ctx.nowS);
-    const docs = await db.query("users/" + ctx.uid, "ops", { where: ["ts", ">=", range.from - ctx.shift] });
-    const ops = docs.map(d => d.data).filter(o => o && !o._del && typeof o.sum === "number").map(o => Object.assign({}, o, { ts: o.ts + ctx.shift }));
+    const ops = (await opsSince(ctx, range.from - ctx.shift)).map(o => Object.assign({}, o, { ts: o.ts + ctx.shift }));
     const tot = QL.totals(ops);
     const lines = [QL.fill(t.month, { month: QL.capitalize(QL.fmtDate(ctx.nowS, lang, { month: "long" })), spent: money(tot.spent, lang), income: money(tot.income, lang) })];
     const b = QL.budgetStatus(ctx.s.budget, tot.spent, ctx.nowS);
@@ -214,8 +259,7 @@ function createBot(o) {
   }
   async function today(ctx, chat) {
     const t = ctx.t, lang = ctx.lang, from = QL.startOfDay(ctx.nowS) - ctx.shift;
-    const docs = await db.query("users/" + ctx.uid, "ops", { where: ["ts", ">=", from] });
-    const ops = docs.map(d => d.data).filter(o => o && !o._del && typeof o.sum === "number").sort((a, b) => a.ts - b.ts);
+    const ops = (await opsSince(ctx, from)).sort((a, b) => a.ts - b.ts);
     if (!ops.length) return tg.send(chat, t.todayNone);
     const lines = ops.map(o => QL.hhmm(o.ts + ctx.shift) + " · " + trCat(o.cat, lang) + " · " + money(o.sum, lang, true) + (o.note ? " · " + o.note : ""));
     lines.push(QL.fill(t.today, { n: ops.length, spent: money(QL.totals(ops).spent, lang) }));
@@ -232,9 +276,11 @@ function createBot(o) {
       return tg.send(chat, t0.badLink);
     }
     await db.del("botLinks/" + code);           // one use only, whatever happens next
-    await db.set(userKey(from), { uid: doc.data.uid, tz: validTz(doc.data.tz), linkedAt: now(), day: "", count: 0 });
+    const state = { uid: doc.data.uid, tz: validTz(doc.data.tz), linkedAt: now(), day: "", count: 0 };
+    if (doc.data.app === "v4") state.app = "v4";
+    await db.set(userKey(from), state);
     const ctx = await context(await db.get(userKey(from)), from);
-    return tg.send(chat, ctx.t.linked);
+    return tg.send(chat, ctx.v4 ? ctx.t.linked + "\n\n" + ctx.t.remindOn : ctx.t.linked);
   }
 
   async function onMessage(m) {
@@ -261,7 +307,8 @@ function createBot(o) {
     if (!link || !msg || !msg.chat) { await tg.answer(q.id); return null; }
     const ctx = await context(link, q.from), chat = msg.chat.id, mid = msg.message_id;
     let m;
-    if ((m = /^u:(\d{1,17})$/.exec(data))) await undo(ctx, chat, m[1], mid);
+    if ((m = /^k:(\d{4})(\d{2})(\d{2})$/.exec(data)) && ctx.v4) await checkIn(ctx, chat, m[1] + "-" + m[2] + "-" + m[3], mid);
+    else if ((m = /^u:(\d{1,17})$/.exec(data))) await undo(ctx, chat, m[1], mid);
     else if ((m = /^c:(\d{1,17})$/.exec(data))) await showCats(ctx, chat, m[1], mid);
     else if ((m = /^s:(\d{1,17}):(\d{1,2})$/.exec(data))) await setCat(ctx, chat, m[1], +m[2], mid);
     else if ((m = /^p:(\d)$/.exec(data)) || data === "x") {
@@ -273,6 +320,52 @@ function createBot(o) {
     }
     await tg.answer(q.id);
     return null;
+  }
+
+  // ── Qalta 4 evening check-in ──
+  async function checkIn(ctx, chat, day, editId) {
+    const path = "users/" + ctx.uid + "/checkins/" + day, prev = await db.get(path);
+    const p = prev && prev.data;
+    await db.set(path, { id: day, day, done: true, at: p && !p.deleted && p.at ? p.at : ctx.now, decision: (p && p.decision) || "", updatedAt: Math.max(ctx.now, ((p && p.updatedAt) || 0) + 1), deviceId: DEVICE });
+    return tg.edit(chat, editId, ctx.t.checked);
+  }
+
+  // Called by the Worker's cron every 15 minutes: an evening reminder for Qalta 4 users at their own time
+  // (meta/q4.reminder, "21:00" unless set; "" turns it off), once a day, and not after the check-in is done.
+  async function remind() {
+    const t0 = now();
+    let sent = 0;
+    for (const u of await db.list("botUsers")) {
+      const link = u.data;
+      if (!link || link.app !== "v4" || typeof link.uid !== "string" || !/^tg_\d+$/.test(u.id)) continue;
+      try { if (await remindOne(u.id, link, t0)) sent++; } catch (e) { log("remind " + u.id + ": " + (e && e.message)); }
+    }
+    return sent;
+  }
+  async function remindOne(id, link, t0) {
+    const tz = validTz(link.tz), shift = shiftFor(tz, t0), nowS = t0 + shift;
+    const st = await db.get("users/" + link.uid + "/meta/q4");
+    const reminder = st && typeof st.data.reminder === "string" ? st.data.reminder : "21:00";
+    const hm = /^(\d{2}):(\d{2})$/.exec(reminder);
+    if (!hm) return false;
+    const d = new Date(nowS), mins = d.getHours() * 60 + d.getMinutes(), at = +hm[1] * 60 + +hm[2];
+    if (mins < at || mins >= at + 30) return false;
+    const day = QL.ymd(nowS);
+    if (link.remindedDay === day) return false;
+    const ck = await db.get("users/" + link.uid + "/checkins/" + day);
+    if (ck && ck.data.done && !ck.data.deleted) return false;
+    const t = S.ru;
+    const live = x => x && !x.deleted && x.kind === "expense" && typeof x.amount === "number";
+    const today = (await db.query("users/" + link.uid, "txs", { where: ["at", ">=", QL.startOfDay(nowS) - shift] })).map(x => x.data).filter(live);
+    const lines = [QL.fill(today.length ? t.remind : t.remindNone, { n: today.length, spent: money(today.reduce((a, x) => a + x.amount, 0), "ru") })];
+    if (d.getDay() === 0) {
+      const back = 6 * 86400000, from = QL.startOfDay(nowS) - back - shift;
+      const week = (await db.query("users/" + link.uid, "txs", { where: ["at", ">=", from] })).map(x => x.data).filter(live);
+      lines.push(QL.fill(t.remindWeek, { spent: money(week.reduce((a, x) => a + x.amount, 0), "ru") }));
+    }
+    await tg.send(Number(id.slice(3)), lines.join("\n"), [[{ text: t.checkBtn, data: "k:" + day.replace(/-/g, "") }], [{ text: t.openBtn, url: appUrl }]]);
+    await db.set("botUsers/" + id, Object.assign({}, link, { remindedDay: day }));
+    return true;
   }
 
   async function handleUpdate(u) {
@@ -289,7 +382,7 @@ function createBot(o) {
     }
   }
 
-  return { handleUpdate };
+  return { handleUpdate, remind };
 }
 
 module.exports = { createBot, sameSecret, shiftFor, validTz, noteFor, idFor, DEVICE, DAILY_LIMIT };

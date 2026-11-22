@@ -47,19 +47,20 @@ interface Props {
   envelopes: Envelope[];
   envBalance: (e: Envelope) => number;
   left: number; // what is left of today's figure (with the edited entry taken out)
+  prefill?: { amount: number; note: string; category?: string };
   onSave: (e: EntryResult) => void;
   onDelete?: () => void;
 }
 
-export function Entry({ mode: initialMode, editing, accounts, txs, envelopes, envBalance, left, onSave, onDelete }: Props) {
+export function Entry({ mode: initialMode, editing, accounts, txs, envelopes, envBalance, left, prefill, onSave, onDelete }: Props) {
   const now = Date.now();
   const today = ymd(now);
   const [mode, setMode] = useState<Kind>(editing && editing.kind !== 'transfer' ? editing.kind : initialMode);
-  const [expr, setExpr] = useState(editing ? String(editing.amount) : '');
-  const [cat, setCat] = useState(editing?.category ?? '');
+  const [expr, setExpr] = useState(editing ? String(editing.amount) : prefill ? String(prefill.amount) : '');
+  const [cat, setCat] = useState(editing?.category ?? prefill?.category ?? '');
   const [suggested, setSuggested] = useState<string[]>([]);
   const [day, setDay] = useState(editing ? ymd(editing.at) : today);
-  const [phrase, setPhrase] = useState(editing?.note ?? '');
+  const [phrase, setPhrase] = useState(editing?.note ?? prefill?.note ?? '');
   const [envId, setEnvId] = useState(editing?.envelopeId ?? '');
   const [acc, setAcc] = useState(() => {
     if (editing) return editing.accountId;
@@ -70,7 +71,7 @@ export function Entry({ mode: initialMode, editing, accounts, txs, envelopes, en
     return accounts[0]?.id ?? '';
   });
   // Fields set by hand are not overwritten by the phrase.
-  const touched = useRef({ amount: !!editing, cat: !!editing, acc: !!editing, day: !!editing, mode: !!editing });
+  const touched = useRef({ amount: !!editing || !!prefill, cat: !!editing || !!prefill?.category, acc: !!editing, day: !!editing, mode: !!editing || !!prefill });
 
   const cats = useMemo(() => orderedCategories(mode, txs, suggested), [mode, txs, suggested]);
   useEffect(() => {

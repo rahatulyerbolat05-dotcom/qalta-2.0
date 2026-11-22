@@ -98,6 +98,18 @@ class Firestore {
   // whole document replaced (the sync engine writes documents whole, too)
   async set(path, data) { await this.call("PATCH", this.base + "/" + Firestore.path(path), { fields: encFields(data) }); }
   async del(path) { await this.call("DELETE", this.base + "/" + Firestore.path(path)); }
+  // every document of a top-level collection (botUsers), page by page
+  async list(collection) {
+    const out = [];
+    let token = "";
+    for (let i = 0; i < 50; i++) {
+      const j = await this.call("GET", this.base + "/" + Firestore.path(collection) + "?pageSize=300" + (token ? "&pageToken=" + encodeURIComponent(token) : ""));
+      (j && j.documents || []).forEach(x => out.push({ id: x.name.split("/").pop(), data: decFields(x.fields || {}) }));
+      if (!j || !j.nextPageToken) break;
+      token = j.nextPageToken;
+    }
+    return out;
+  }
   // documents of parent/collection; q: { where: [field, ">=", value], orderBy: field, desc: bool, limit }
   async query(parent, collection, q) {
     q = q || {};

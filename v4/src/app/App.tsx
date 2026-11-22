@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { store } from '../data/store.ts';
-import { signIn, signOut } from '../data/sync.ts';
-import { dayFigure, startOfDay, type Account, type Tx } from '../domain/daily.ts';
+import { connectTelegram, signIn, signOut } from '../data/sync.ts';
+import { reminderOf } from '../data/store.ts';
+import { checkinDue, habitStats, isSunday, weekSummary, type Wish } from '../domain/habit.ts';
+import { CheckinSheet, WeeklySheet, WishSheet } from './Habit.tsx';
+import { dayFigure, startOfDay, ymd, type Account, type Tx } from '../domain/daily.ts';
 import { Sheet, Tabs, Toast, type ToastData } from '../ui/kit.tsx';
 import { signed, tenge } from '../ui/format.ts';
 import { animate, useSwipe } from '../ui/motion.ts';
@@ -21,7 +24,10 @@ const TABS = [
 ];
 
 type Open =
-  | { kind: 'entry'; mode: 'expense' | 'income'; editing: Tx | null }
+  | { kind: 'entry'; mode: 'expense' | 'income'; editing: Tx | null; prefill?: { amount: number; note: string; category?: string }; wish?: Wish }
+  | { kind: 'checkin' }
+  | { kind: 'weekly' }
+  | { kind: 'wish' }
   | { kind: 'setup' }
   | { kind: 'account'; account: Account }
   | { kind: 'profile' }
@@ -39,6 +45,9 @@ export function App() {
   const figure = dayFigure(s.accounts, s.txs, now, s.settings.until, reserved);
   const envBalance = (e: Envelope) => envelopeBalance(e, s.allocations, s.txs);
   const perDayWith = (extraReserved: number) => dayFigure(s.accounts, s.txs, Date.now(), s.settings.until, reserved + extraReserved).allowance;
+  const stats = habitStats(s.checkins, now);
+  const habit = { stats, due: s.accounts.length > 0 && checkinDue(reminderOf(s.settings), now, stats.doneToday), sunday: isSunday(now) };
+  const todayTxs = s.txs.filter((t) => t.at >= startOfDay(now));
   const [done, setDone] = useState<{ amount: number; count: number; perDay: number; from: { x: number; y: number } } | null>(null);
   const say = (text: string, action?: ToastData['action']) => setToast({ id: Date.now(), text, action });
   const page = useRef<HTMLDivElement>(null);
@@ -116,6 +125,9 @@ export function App() {
               onSetup={() => setSheet({ kind: 'setup' })}
               onMoney={() => setTab('money')}
               onProfile={() => setSheet({ kind: 'profile' })}
+              habit={habit}
+              onCheck={() => setSheet({ kind: 'checkin' })}
+              onWeek={() => setSheet({ kind: 'weekly' })}
               onRemove={remove}
               onRepeat={(tx) => {
                 const copy = store.addTx({ kind: tx.kind, amount: tx.amount, accountId: tx.accountId, toAccountId: tx.toAccountId, category: tx.category, note: tx.note, at: Date.now() });
@@ -131,6 +143,13 @@ export function App() {
               envBalance={envBalance}
               onAccount={(account) => setSheet({ kind: 'account', account })}
               onEnvelope={(env) => setSheet({ kind: 'envelope', env })}
+              now={now}
+              onWish={() => setSheet({ kind: 'wish' })}
+              onBuyWish={(w) => setSheet({ kind: 'entry', mode: 'expense', editing: null, prefill: { amount: w.price, note: w.title, category: 'Прочее' }, wish: w })}
+              onDropWish={(w) => {
+                store.setWish(w.id, { status: 'dropped' });
+                say(`«${w.title}» не куплено: ${tenge(w.price)} ₸ остались у вас`, { label: 'Отменить', run: () => store.setWish(w.id, { status: 'waiting' }) });
+              }}
               onPresets={() => {
                 store.saveEnvelope({ name: 'Близким', kind: 'reserve', ruleMode: 'percent', ruleValue: 20, target: 0 });
                 store.saveEnvelope({ name: 'Подушка', kind: 'goal', ruleMode: 'percent', ruleValue: 10, target: 100_000 });
@@ -146,7 +165,8 @@ export function App() {
       <Sheet open={sheet?.kind === 'entry'} label={editing ? 'Изменить запись' : 'Новая запись'} onClose={() => setSheet(null)}>
         {sheet?.kind === 'entry' && (
           <Entry
-            key={editing?.id ?? 'new-' + sheet.mode}
+            key={editing?.id ?? 'new-' + sheet.mode + (sheet.wish?.id ?? '')}
+            prefill={sheet.prefill}
             mode={sheet.mode}
             editing={editing}
             accounts={s.accounts}
@@ -162,6 +182,7 @@ export function App() {
                 say('Изменения сохранены', { label: 'Отменить', run: () => store.updateTx(editing.id, { kind: editing.kind, amount: editing.amount, category: editing.category, accountId: editing.accountId, at: editing.at, note: editing.note, envelopeId: editing.envelopeId }) });
               } else {
                 const tx = store.addTx({ ...e });
+                if (sheet.wish) store.setWish(sheet.wish.id, { status: 'bought' });
                 // A new income opens the split right away, while the money is still whole.
                 const plan = tx.kind === 'income' ? planIncome(tx.amount, s.envelopes, new Map(s.envelopes.map((x) => [x.id, envBalance(x)]))) : null;
                 if (plan && plan.lines.length) setTimeout(() => setSheet({ kind: 'allocate', tx }), 380);
@@ -249,7 +270,59 @@ export function App() {
       </Sheet>
 
       <Sheet open={sheet?.kind === 'profile'} label="Аккаунт" onClose={() => setSheet(null)}>
-        <Profile s={s} onSignIn={() => signIn()} onSignOut={() => { void signOut(); setSheet(null); }} />
+        <Profile s={s} onSignIn={() => signIn()} onSignOut={() => { void signOut(); setSheet(null); }} onReminder={(r) => store.setReminder(r)} onTelegram={() => connectTelegram()} />
+      </Sheet>
+
+      <Sheet open={sheet?.kind === 'checkin'} label="Сверка дня" onClose={() => setSheet(null)}>
+        {sheet?.kind === 'checkin' && (
+          <CheckinSheet
+            today={todayTxs}
+            spent={figure.spent}
+            left={figure.left}
+            stats={stats}
+            onAdd={() => setSheet({ kind: 'entry', mode: 'expense', editing: null })}
+            onDone={() => {
+              const day = ymd(Date.now());
+              store.checkIn(day);
+              setSheet(null);
+              say(`День сверен · серия ${habitStats([...s.checkins, { id: day, day, done: true, at: Date.now(), decision: '', updatedAt: 1 }], Date.now()).streak}`, { label: 'Отменить', run: () => store.undoCheckIn(day) });
+            }}
+            onRest={(amount) => {
+              const tx = store.addTx({ kind: 'expense', amount, accountId: s.accounts.find((a) => a.kind === 'cash')?.id ?? s.accounts[0].id, category: 'Прочее', note: 'прочее за день', at: Date.now() });
+              const day = ymd(Date.now());
+              store.checkIn(day);
+              setSheet(null);
+              say(`Записано ${tenge(amount)} ₸, день сверен`, { label: 'Отменить', run: () => { store.removeTx(tx.id); store.undoCheckIn(day); } });
+            }}
+          />
+        )}
+      </Sheet>
+
+      <Sheet open={sheet?.kind === 'weekly'} label="Недельный обзор" onClose={() => setSheet(null)}>
+        {sheet?.kind === 'weekly' && (
+          <WeeklySheet
+            week={weekSummary(s.txs, s.checkins, Date.now())}
+            decision={s.checkins.find((c) => c.day === ymd(now))?.decision ?? ''}
+            onSave={(d) => {
+              store.checkIn(ymd(Date.now()), d);
+              setSheet(null);
+              say(d ? 'Решение на неделю сохранено' : 'Обзор закрыт');
+            }}
+          />
+        )}
+      </Sheet>
+
+      <Sheet open={sheet?.kind === 'wish'} label="Хочу купить" onClose={() => setSheet(null)}>
+        {sheet?.kind === 'wish' && (
+          <WishSheet
+            allowance={figure.allowance}
+            onSave={(title, price, wait) => {
+              const w = store.addWish(title, price, wait);
+              setSheet(null);
+              say(`«${title}» подождёт ${wait === 1 ? 'до завтра' : wait + ' дней'}`, { label: 'Отменить', run: () => store.setWish(w.id, { deleted: true }) });
+            }}
+          />
+        )}
       </Sheet>
 
       <Toast toast={toast} onDone={() => setToast(null)} />

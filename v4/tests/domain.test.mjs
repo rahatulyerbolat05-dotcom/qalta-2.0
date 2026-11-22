@@ -194,3 +194,54 @@ test('envelope money is not free money; spending from an envelope does not touch
   const before = dayFigure([card], [], NOW, '2026-12-05', reservedTotal([cushion], allocs, []));
   assert.equal(before.allowance, f.allowance, 'the free money is the same before and after paying from the envelope');
 });
+
+import { habitStats, checkinDue, weekSummary, weekStart, wishDays, wishReady } from '../src/domain/habit.ts';
+
+const DAYMS = 86_400_000;
+const ck = (daysAgo, extra = {}) => { const t = NOW - daysAgo * DAYMS; return { id: ymd(t), day: ymd(t), done: true, at: t, decision: '', updatedAt: t, ...extra }; };
+
+test('streak forgives one missed day, two in a row end it; today still open does not break it', () => {
+  assert.deepEqual(habitStats([ck(0), ck(1), ck(2)], NOW), { doneToday: true, streak: 3, last30: 3 });
+  assert.equal(habitStats([ck(1), ck(2)], NOW).streak, 2, 'evening not done yet: the run continues from yesterday');
+  assert.equal(habitStats([ck(0), ck(2), ck(3)], NOW).streak, 3, 'one gap forgiven');
+  assert.equal(habitStats([ck(0), ck(3), ck(4)], NOW).streak, 1, 'two missed days end the run');
+  assert.equal(habitStats([ck(0, { deleted: true })], NOW).doneToday, false);
+  assert.equal(habitStats([ck(0), ck(40)], NOW).last30, 1);
+});
+
+test('the evening card appears from the reminder time until the check-in is done', () => {
+  assert.equal(checkinDue('21:00', NOW, false), false, '18:00 is before 21:00');
+  assert.equal(checkinDue('17:30', NOW, false), true);
+  assert.equal(checkinDue('17:30', NOW, true), false);
+  assert.equal(checkinDue('', NOW, false), false, 'reminder switched off');
+});
+
+test('weekly summary: this week from Monday against the previous week, the top category, evenings checked', () => {
+  const mon = weekStart(NOW); // 22 Nov 2026 is a Sunday, so Monday is 16 Nov
+  assert.equal(new Date(mon).getDay(), 1);
+  assert.equal(new Date(mon).getDate(), 16);
+  const ops = [
+    tx({ kind: 'expense', amount: 3000, accountId: 'card', at: mon + DAYMS, category: 'Кафе' }),
+    tx({ kind: 'expense', amount: 5000, accountId: 'card', at: mon + 2 * DAYMS, category: 'Продукты' }),
+    tx({ kind: 'expense', amount: 1000, accountId: 'card', at: mon + 3 * DAYMS, category: 'Кафе', envelopeId: 'x' }),
+    tx({ kind: 'expense', amount: 7000, accountId: 'card', at: mon - DAYMS, category: 'Кафе' }),
+    tx({ kind: 'income', amount: 99000, accountId: 'card', at: mon + DAYMS, category: 'Гонорар' }),
+  ];
+  const w = weekSummary(ops, [ck(0), ck(1), ck(9)], NOW);
+  assert.deepEqual([w.spent, w.prevSpent, w.records, w.topCategory, w.topAmount, w.checkins], [9000, 7000, 3, 'Продукты', 5000, 2]);
+});
+
+test('a wish costs days of the figure and is ready once its waiting time has passed', () => {
+  assert.equal(wishDays(25_000, 9000), 3);
+  assert.equal(wishDays(25_000, 0), 0);
+  const w = { id: 'w', title: 'Наушники', price: 25_000, createdAt: NOW, decideAt: NOW + DAYMS, status: 'waiting', updatedAt: NOW };
+  assert.equal(wishReady(w, NOW), false);
+  assert.equal(wishReady(w, NOW + DAYMS), true);
+  assert.equal(wishReady({ ...w, status: 'dropped' }, NOW + 2 * DAYMS), false);
+});
+
+test('the weekly summary counts an entry made after the screen was opened', () => {
+  const opened = NOW - 3_600_000;
+  const later = tx({ kind: 'expense', amount: 2500, accountId: 'card', at: NOW, category: 'Кафе' });
+  assert.equal(weekSummary([later], [], opened).spent, 2500);
+});

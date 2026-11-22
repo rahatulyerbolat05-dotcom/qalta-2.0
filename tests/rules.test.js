@@ -82,6 +82,8 @@ test("nothing outside the per-user collections (prototype + Qalta 4) and the bot
     "match /txs/{id} {",        // Qalta 4
     "match /envelopes/{id} {",  // Qalta 4
     "match /allocations/{id} {",// Qalta 4
+    "match /checkins/{id} {",   // Qalta 4
+    "match /wishes/{id} {",     // Qalta 4
     "match /botLinks/{code} {"
   ]);
   assert.ok(!/allow [^;]*:\s*if\s+true/.test(rules), "no unconditional allow");
@@ -91,7 +93,8 @@ test("bot link codes can only be created, for one's own uid, short-lived, with t
   const block = /match \/botLinks\/\{code\} \{([\s\S]*?)\n    \}/.exec(rules)[1];
   assert.deepEqual((block.match(/allow ([a-z, ]+):/g) || []).map(s => s.trim()), ["allow create:"], "no read, update, delete or list");
   assert.match(block, /request\.resource\.data\.uid == request\.auth\.uid/);
-  assert.match(block, /hasOnly\(\['uid', 'exp', 'tz'\]\)/);
+  assert.match(block, /hasOnly\(\['uid', 'exp', 'tz', 'app'\]\)/);
+  assert.match(block, /request\.resource\.data\.app == 'v4'/, "app is only ever the Qalta 4 marker");
   assert.match(block, /exp <= request\.time\.toMillis\(\) \+ 1800000/);
   const core = fs.readFileSync(path.join(__dirname, "..", "bot", "core.js"), "utf8");
   ["uid", "exp", "tz"].forEach(f => assert.ok(core.includes("doc.data." + f) || core.includes("data." + f), "the bot reads " + f));

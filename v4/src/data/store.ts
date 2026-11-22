@@ -9,10 +9,14 @@ import type { Account, Stamped, Tx } from '../domain/daily.ts';
 import { dayFigure, ymd } from '../domain/daily.ts';
 import { pickIncoming, type Synced } from '../domain/merge.ts';
 import { reservedTotal, type Allocation, type Envelope } from '../domain/envelopes.ts';
+import type { Checkin, Wish } from '../domain/habit.ts';
 
 export interface Settings extends Stamped {
   until: string; // 'YYYY-MM-DD'
+  reminder?: string; // 'HH:MM' for the evening check-in; '' = off; absent = 21:00
 }
+
+export const reminderOf = (s: Settings) => (s.reminder === undefined ? '21:00' : s.reminder);
 
 export interface User {
   uid: string;
@@ -29,6 +33,8 @@ export interface State {
   txs: Tx[]; // live, newest first
   envelopes: Envelope[]; // live, by order
   allocations: Allocation[]; // live
+  checkins: Checkin[]; // live
+  wishes: Wish[]; // live, newest first
   settings: Settings;
   user: User | null;
   sync: SyncStatus;
@@ -42,11 +48,14 @@ class QaltaDB extends Dexie {
   txs!: Table<Synced<Tx>, string>;
   envelopes!: Table<Synced<Envelope>, string>;
   allocations!: Table<Synced<Allocation>, string>;
+  checkins!: Table<Synced<Checkin>, string>;
+  wishes!: Table<Synced<Wish>, string>;
   kv!: Table<KV, string>;
   constructor() {
     super('qalta4');
     this.version(1).stores({ accounts: 'id, order', txs: 'id, at, accountId', kv: 'key' });
     this.version(2).stores({ envelopes: 'id, order', allocations: 'id, envelopeId' });
+    this.version(3).stores({ checkins: 'id', wishes: 'id' });
   }
 }
 
@@ -77,8 +86,9 @@ function deviceId(): string {
 }
 
 type Listener = (s: State) => void;
-export type Collection = 'accounts' | 'txs' | 'envelopes' | 'allocations' | 'settings';
-export const COLLECTIONS: Collection[] = ['accounts', 'txs', 'envelopes', 'allocations', 'settings'];
+export type Collection = 'accounts' | 'txs' | 'envelopes' | 'allocations' | 'checkins' | 'wishes' | 'settings';
+export const COLLECTIONS: Collection[] = ['accounts', 'txs', 'envelopes', 'allocations', 'checkins', 'wishes', 'settings'];
+type RecordCollection = Exclude<Collection, 'settings'>;
 type LocalChange = (c: Collection, records: Array<Synced<Stamped>>) => void;
 
 class Store {
@@ -89,11 +99,13 @@ class Store {
   private txs = new Map<string, Synced<Tx>>();
   private envelopes = new Map<string, Synced<Envelope>>();
   private allocations = new Map<string, Synced<Allocation>>();
+  private checkins = new Map<string, Synced<Checkin>>();
+  private wishes = new Map<string, Synced<Wish>>();
   private settingsRec: Synced<Settings> = { id: 'settings', until: defaultUntil(), updatedAt: 0 };
   private onLocal: LocalChange | null = null;
   readonly device = deviceId();
 
-  state: State = { ready: false, persistent: true, accounts: [], txs: [], envelopes: [], allocations: [], settings: this.settingsRec, user: null, sync: 'off', syncNote: '' };
+  state: State = { ready: false, persistent: true, accounts: [], txs: [], envelopes: [], allocations: [], checkins: [], wishes: [], settings: this.settingsRec, user: null, sync: 'off', syncNote: '' };
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -110,7 +122,9 @@ class Store {
     const txs = [...this.txs.values()].filter((t) => !t.deleted).sort((a, b) => b.at - a.at || b.createdAt - a.createdAt);
     const envelopes = [...this.envelopes.values()].filter((e) => !e.deleted).sort((a, b) => a.order - b.order);
     const allocations = [...this.allocations.values()].filter((a) => !a.deleted);
-    this.state = { ...this.state, accounts, txs, envelopes, allocations, settings: this.settingsRec, ...extra };
+    const checkins = [...this.checkins.values()].filter((c) => !c.deleted);
+    const wishes = [...this.wishes.values()].filter((w) => !w.deleted).sort((a, b) => b.createdAt - a.createdAt);
+    this.state = { ...this.state, accounts, txs, envelopes, allocations, checkins, wishes, settings: this.settingsRec, ...extra };
     this.writeBoot();
     for (const fn of this.listeners) fn(this.state);
   }
@@ -152,7 +166,9 @@ class Store {
   }
 
   private async load(db: QaltaDB) {
-    const [accounts, txs, envelopes, allocations, settings] = await Promise.all([db.accounts.toArray(), db.txs.toArray(), db.envelopes.toArray(), db.allocations.toArray(), db.kv.get('settings')]);
+    const [accounts, txs, envelopes, allocations, checkins, wishes, settings] = await Promise.all([db.accounts.toArray(), db.txs.toArray(), db.envelopes.toArray(), db.allocations.toArray(), db.checkins.toArray(), db.wishes.toArray(), db.kv.get('settings')]);
+    this.checkins = new Map(checkins.map((c) => [c.id, c]));
+    this.wishes = new Map(wishes.map((w) => [w.id, w]));
     this.accounts = new Map(accounts.map((a) => [a.id, a]));
     this.txs = new Map(txs.map((t) => [t.id, t]));
     this.envelopes = new Map(envelopes.map((e) => [e.id, e]));
@@ -180,7 +196,7 @@ class Store {
   private async persist(work: (db: QaltaDB) => Promise<unknown>) {
     if (!this.db) return;
     try {
-      await this.db.transaction('rw', [this.db.accounts, this.db.txs, this.db.envelopes, this.db.allocations, this.db.kv], () => work(this.db!));
+      await this.db.transaction('rw', [this.db.accounts, this.db.txs, this.db.envelopes, this.db.allocations, this.db.checkins, this.db.wishes, this.db.kv], () => work(this.db!));
       this.channel?.postMessage('changed');
     } catch {
       this.set({ persistent: false });
@@ -219,6 +235,19 @@ class Store {
     this.rebuild();
     void this.persist((db) => db.allocations.bulkPut(recs));
     this.onLocal?.('allocations', recs);
+  }
+
+  private commit<T extends Stamped>(c: RecordCollection, recs: Array<Synced<T>>) {
+    if (!recs.length) return;
+    const map = this.maps()[c] as Map<string, Synced<Stamped>>;
+    for (const r of recs) map.set(r.id, r);
+    this.rebuild();
+    void this.persist((db) => (db[c] as unknown as Table<Synced<Stamped>, string>).bulkPut(recs));
+    this.onLocal?.(c, recs);
+  }
+
+  private maps() {
+    return { accounts: this.accounts, txs: this.txs, envelopes: this.envelopes, allocations: this.allocations, checkins: this.checkins, wishes: this.wishes };
   }
 
   // ───── actions ─────
@@ -309,6 +338,40 @@ class Store {
     this.commitAllocations(ids.map((id) => this.allocations.get(id)).filter((a): a is Synced<Allocation> => !!a && !a.deleted).map((a) => this.stamp({ ...a, deleted: true }, a)));
   }
 
+  // ───── habit ─────
+
+  setReminder(reminder: string) {
+    this.settingsRec = this.stamp({ ...this.settingsRec, reminder }, this.settingsRec);
+    this.rebuild();
+    const rec = this.settingsRec;
+    void this.persist((db) => db.kv.put({ key: 'settings', value: rec }));
+    this.onLocal?.('settings', [rec]);
+  }
+
+  checkIn(day: string, decision?: string): Checkin {
+    const prev = this.checkins.get(day);
+    const rec = this.stamp({ id: day, day, done: true, at: prev?.at ?? Date.now(), decision: decision ?? prev?.decision ?? '', updatedAt: 0 } as Checkin, prev);
+    this.commit('checkins', [rec]);
+    return rec;
+  }
+
+  undoCheckIn(day: string) {
+    const prev = this.checkins.get(day);
+    if (prev && !prev.deleted) this.commit('checkins', [this.stamp({ ...prev, deleted: true }, prev)]);
+  }
+
+  addWish(title: string, price: number, waitDays: number): Wish {
+    const now = Date.now();
+    const rec = this.stamp({ id: newId(), title, price, createdAt: now, decideAt: now + waitDays * DAY, status: 'waiting', updatedAt: 0 } as Wish);
+    this.commit('wishes', [rec]);
+    return rec;
+  }
+
+  setWish(id: string, patch: Partial<Pick<Wish, 'status' | 'deleted'>>) {
+    const w = this.wishes.get(id);
+    if (w) this.commit('wishes', [this.stamp({ ...w, ...patch }, w)]);
+  }
+
   // ───── sync support ─────
 
   all(c: Collection): Array<Synced<Stamped>> {
@@ -316,6 +379,8 @@ class Store {
     if (c === 'txs') return [...this.txs.values()];
     if (c === 'envelopes') return [...this.envelopes.values()];
     if (c === 'allocations') return [...this.allocations.values()];
+    if (c === 'checkins') return [...this.checkins.values()];
+    if (c === 'wishes') return [...this.wishes.values()];
     return [this.settingsRec];
   }
 
@@ -328,7 +393,7 @@ class Store {
       void this.persist((db) => db.kv.put({ key: 'settings', value: s }));
       return 1;
     }
-    const map = { accounts: this.accounts, txs: this.txs, envelopes: this.envelopes, allocations: this.allocations }[c] as Map<string, Synced<Stamped>>;
+    const map = this.maps()[c] as Map<string, Synced<Stamped>>;
     const take = pickIncoming(map, incoming);
     if (!take.length) return 0;
     for (const r of take) map.set(r.id, r);
@@ -340,7 +405,7 @@ class Store {
   // Signing into a different Google account on this device: keep a copy, then start clean.
   async resetForOtherAccount() {
     try {
-      localStorage.setItem('qalta4:backup-before-switch', JSON.stringify({ at: Date.now(), accounts: this.all('accounts'), txs: this.all('txs'), envelopes: this.all('envelopes'), allocations: this.all('allocations'), settings: this.settingsRec }));
+      localStorage.setItem('qalta4:backup-before-switch', JSON.stringify({ at: Date.now(), accounts: this.all('accounts'), txs: this.all('txs'), envelopes: this.all('envelopes'), allocations: this.all('allocations'), checkins: this.all('checkins'), wishes: this.all('wishes'), settings: this.settingsRec }));
     } catch {
       throw new Error('backup-failed');
     }
@@ -348,12 +413,16 @@ class Store {
     this.txs.clear();
     this.envelopes.clear();
     this.allocations.clear();
+    this.checkins.clear();
+    this.wishes.clear();
     this.settingsRec = { id: 'settings', until: defaultUntil(), updatedAt: 0 };
     await this.persist(async (db) => {
       await db.accounts.clear();
       await db.txs.clear();
       await db.envelopes.clear();
       await db.allocations.clear();
+      await db.checkins.clear();
+      await db.wishes.clear();
       await db.kv.delete('settings');
     });
     this.rebuild();

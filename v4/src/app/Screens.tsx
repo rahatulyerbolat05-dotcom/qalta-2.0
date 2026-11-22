@@ -7,6 +7,9 @@ import { dayHeader, dayMonth, daysWord, hhmm, signed, tenge } from '../ui/format
 import { SPRING, reduced, useSwipe, useTween } from '../ui/motion.ts';
 import type { Envelope } from '../domain/envelopes.ts';
 import { EnvelopeCard } from './Envelopes.tsx';
+import { HabitCard, WishSection } from './Habit.tsx';
+import type { HabitStats, Wish } from '../domain/habit.ts';
+import { reminderOf } from '../data/store.ts';
 
 const TONE: Record<string, string> = { card: 'dew', cash: 'dawn' };
 
@@ -115,6 +118,9 @@ interface TodayProps {
   onRepeat: (tx: Tx) => void;
   onMoney: () => void;
   onProfile: () => void;
+  habit: { stats: HabitStats; due: boolean; sunday: boolean };
+  onCheck: () => void;
+  onWeek: () => void;
 }
 
 export function Today(p: TodayProps) {
@@ -199,6 +205,9 @@ export function Today(p: TodayProps) {
         <section class="list rise" style="--i:4" aria-label="Операции">
           <div class="sheet-grab static"><span /></div>
           <h2 class="list-title">Операции</h2>
+          <div class="habit-wrap">
+            <HabitCard stats={p.habit.stats} due={p.habit.due} sunday={p.habit.sunday} onCheck={p.onCheck} onWeek={p.onWeek} />
+          </div>
           {groups.length === 0 && <p class="empty">Записей пока нет. Первую можно сделать кнопкой «Расход».</p>}
           {groups.length > 0 && <p class="list-tip">Свайп влево — удалить, вправо — повторить, нажатие — изменить</p>}
           {groups.map((g) => (
@@ -225,9 +234,13 @@ interface MoneyProps {
   onAccount: (a: Account) => void;
   onEnvelope: (e: Envelope | null) => void;
   onPresets: () => void;
+  now: number;
+  onWish: () => void;
+  onBuyWish: (w: Wish) => void;
+  onDropWish: (w: Wish) => void;
 }
 
-export function Money({ s, figure, reserved, envBalance, onAccount, onEnvelope, onPresets }: MoneyProps) {
+export function Money({ s, figure, reserved, envBalance, onAccount, onEnvelope, onPresets, now, onWish, onBuyWish, onDropWish }: MoneyProps) {
   return (
     <div class="page">
       <h1 class="page-title rise" style="--i:0">Деньги</h1>
@@ -267,6 +280,7 @@ export function Money({ s, figure, reserved, envBalance, onAccount, onEnvelope, 
               ))}
             </div>
           )}
+          <WishSection wishes={s.wishes} allowance={figure.allowance} now={now} onAdd={onWish} onBuy={onBuyWish} onDrop={onDropWish} />
         </>
       )}
     </div>
@@ -346,7 +360,37 @@ const SYNC_TEXT: Record<string, string> = {
   error: 'Ошибка синхронизации',
 };
 
-export function Profile({ s, onSignIn, onSignOut }: { s: State; onSignIn: () => void; onSignOut: () => void }) {
+function Reminder({ s, onReminder, onTelegram }: { s: State; onReminder: (r: string) => void; onTelegram: () => Promise<void> }) {
+  const r = reminderOf(s.settings);
+  const [tgBusy, setTgBusy] = useState(false);
+  const [tgNote, setTgNote] = useState('');
+  return (
+    <>
+      <h3 class="sub">Вечерняя сверка</h3>
+      <div class="field">
+        <span>Напомнить в</span>
+        <input type="time" aria-label="Время вечерней сверки" value={r || '21:00'} disabled={!r} onInput={(e) => e.currentTarget.value && onReminder(e.currentTarget.value)} />
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Сверка">
+        <button role="radio" aria-checked={!!r} class={r ? 'on' : ''} onClick={() => onReminder(r || '21:00')}>Включена</button>
+        <button role="radio" aria-checked={!r} class={!r ? 'on' : ''} onClick={() => onReminder('')}>Выключена</button>
+      </div>
+      {s.user ? (
+        <>
+          <Sq tag="button" r={20} class="primary ghost" disabled={tgBusy || !r} onClick={async () => { setTgBusy(true); setTgNote(''); try { await onTelegram(); } catch { setTgNote('Не удалось создать ссылку. Проверьте интернет.'); } finally { setTgBusy(false); } }}>
+            {tgBusy ? 'Создаю ссылку…' : 'Напоминать в Telegram'}
+          </Sq>
+          {tgNote && <p class="muted warn-text">{tgNote}</p>}
+          <p class="muted small">Бот напомнит о сверке в это время, а записывать траты можно ему одной фразой: «кофе 2800».</p>
+        </>
+      ) : (
+        <p class="muted small">Без входа сверка напоминает о себе только в приложении. После входа можно подключить напоминания в Telegram.</p>
+      )}
+    </>
+  );
+}
+
+export function Profile({ s, onSignIn, onSignOut, onReminder, onTelegram }: { s: State; onSignIn: () => void; onSignOut: () => void; onReminder: (r: string) => void; onTelegram: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   return (
     <div class="setup">
@@ -357,6 +401,7 @@ export function Profile({ s, onSignIn, onSignOut }: { s: State; onSignIn: () => 
           <p class={`sync-line sync-${s.sync}`}><Icon name="cloud" size={18} /> {SYNC_TEXT[s.sync]}</p>
           {s.syncNote && <p class="muted warn-text">{s.syncNote}</p>}
           <p class="muted small">Данные хранятся на этом телефоне и копируются в облако. После входа на другом устройстве записи появятся и там.</p>
+          <Reminder s={s} onReminder={onReminder} onTelegram={onTelegram} />
           <Sq tag="button" r={20} class="primary ghost" onClick={onSignOut}>Выйти из аккаунта</Sq>
         </>
       ) : (
@@ -368,6 +413,7 @@ export function Profile({ s, onSignIn, onSignOut }: { s: State; onSignIn: () => 
             {busy || s.sync === 'connecting' ? 'Открываю Google…' : 'Войти через Google'}
           </Sq>
           <p class="muted small">Используются только имя и почта аккаунта. Аналитики и рекламы нет.</p>
+          <Reminder s={s} onReminder={onReminder} onTelegram={onTelegram} />
         </>
       )}
     </div>

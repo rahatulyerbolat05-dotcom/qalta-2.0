@@ -13,11 +13,15 @@ function getBot(env) {
   const db = new firestore.Firestore({ projectId: env.FIREBASE_PROJECT, serviceAccount: JSON.parse(env.FIREBASE_SA), fetch: (u, i) => fetch(u, i) });
   const tg = new telegram.Telegram(env.TG_TOKEN, (u, i) => fetch(u, i));
   // loaded on the first phrase, not on linking or reports
-  bot = core.createBot({ tg, db, model: () => CAT.load(modelJson), log: m => console.error(m) });
+  bot = core.createBot({ tg, db, model: () => CAT.load(modelJson), log: m => console.error(m), appUrl: env.APP_URL });
   return bot;
 }
 
 export default {
+  // Cron (wrangler.toml, every 15 minutes): Qalta 4 evening reminders.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(getBot(env).remind());
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname !== "/telegram") return new Response("Qalta bot", { status: 200 });

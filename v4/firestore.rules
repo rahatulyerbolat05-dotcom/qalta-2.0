@@ -131,9 +131,22 @@ service cloud.firestore {
           && d.incomeTxId is string && d.incomeTxId.size() <= 40
           && d.note is string && d.note.size() <= 200 && q4stamp(d);
       }
+      function q4checkin(d, id) {
+        return d.keys().hasOnly(['id', 'day', 'done', 'at', 'decision', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.day == id && id.size() == 10 && d.done is bool && moment(d.at)
+          && d.decision is string && d.decision.size() <= 200 && q4stamp(d);
+      }
+      function q4wish(d, id) {
+        return d.keys().hasOnly(['id', 'title', 'price', 'createdAt', 'decideAt', 'status', 'updatedAt', 'deviceId', 'deleted'])
+          && d.id == id && d.title is string && d.title.size() >= 1 && d.title.size() <= 80
+          && d.price is int && d.price > 0 && d.price <= 999999999
+          && moment(d.createdAt) && moment(d.decideAt) && d.status in ['waiting', 'bought', 'dropped'] && q4stamp(d);
+      }
       function q4settings(d) {
-        return d.keys().hasOnly(['id', 'until', 'updatedAt', 'deviceId'])
-          && d.until is string && d.until.size() == 10 && q4stamp(d);
+        return d.keys().hasOnly(['id', 'until', 'reminder', 'updatedAt', 'deviceId'])
+          && d.until is string && d.until.size() == 10
+          && (!('reminder' in d) || (d.reminder is string && d.reminder.size() <= 5))
+          && q4stamp(d);
       }
       match /accounts/{id} {
         allow read: if isOwner();
@@ -151,6 +164,14 @@ service cloud.firestore {
         allow read: if isOwner();
         allow create, update: if isOwner() && q4allocation(request.resource.data, id);
       }
+      match /checkins/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4checkin(request.resource.data, id);
+      }
+      match /wishes/{id} {
+        allow read: if isOwner();
+        allow create, update: if isOwner() && q4wish(request.resource.data, id);
+      }
     }
 
     // Telegram bot link (see bot/core.js): the signed-in app creates a one-time code for its own uid, valid for
@@ -160,7 +181,8 @@ service cloud.firestore {
     match /botLinks/{code} {
       allow create: if request.auth != null
         && code.size() >= 16 && code.size() <= 64 && code.matches('^[A-Za-z0-9_-]+$')
-        && request.resource.data.keys().hasOnly(['uid', 'exp', 'tz'])
+        && request.resource.data.keys().hasOnly(['uid', 'exp', 'tz', 'app'])
+        && (!('app' in request.resource.data) || request.resource.data.app == 'v4')
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.exp is number
         && request.resource.data.exp > request.time.toMillis()

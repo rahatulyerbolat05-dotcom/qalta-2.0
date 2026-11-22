@@ -128,6 +128,15 @@ async function run() {
       );
     unsub = COLLECTIONS.map((c) => watch(c, c === 'settings' ? F.doc(base, 'meta', 'q4') : F.collection(base, c)));
     store.onLocalChange((c, recs) => push?.(c, recs));
+
+    // A one-time code the Telegram bot exchanges for this account (rules: botLinks, at most 30 minutes).
+    botLinkImpl = async () => {
+      const bytes = crypto.getRandomValues(new Uint8Array(18));
+      const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Almaty';
+      await F.setDoc(F.doc(db, 'botLinks', code), { uid: user.uid, exp: Date.now() + 25 * 60_000, tz: tz.slice(0, 64), app: 'v4' });
+      return code;
+    };
   });
 
   addEventListener('online', () => store.state.user && store.set({ sync: 'on' }));
@@ -158,10 +167,22 @@ function stop() {
   for (const u of unsub) u();
   unsub = [];
   push = null;
+  botLinkImpl = null;
   store.onLocalChange(null);
 }
 
 let signInImpl: (() => Promise<void>) | null = null;
+let botLinkImpl: (() => Promise<string>) | null = null;
+
+export const BOT = 'Qalta_app_bot';
+
+export async function connectTelegram() {
+  if (!botLinkImpl) throw new Error('not signed in');
+  const code = await botLinkImpl();
+  const url = `https://t.me/${BOT}?start=${code}`;
+  const w = window.open(url, '_blank', 'noopener');
+  if (!w) location.href = url;
+}
 let signOutImpl: (() => Promise<void>) | null = null;
 
 export async function signIn() {

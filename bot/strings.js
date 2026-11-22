@@ -3,6 +3,13 @@
 
 module.exports = {
   ru: {
+    noAccounts: "Сначала откройте Qalta и введите остатки на счетах — запись появится там.",
+    remindOn: "Вечером напомню о сверке дня. Время меняется в приложении: профиль → напоминание.",
+    remind: "Вечерняя сверка: сегодня записано {n} — расходы {spent}. Всё верно?",
+    remindNone: "Вечерняя сверка: сегодня записей нет. Если тратили — запишите одной фразой, например «обед 2500».",
+    remindWeek: "За неделю потрачено {spent}. В приложении ждёт недельный обзор.",
+    checkBtn: "Всё верно", openBtn: "Открыть Qalta",
+    checked: "Сверка отмечена. Хорошего вечера.",
     hello: "Это Қalta: запись трат одной фразой.\n\nЧтобы подключить, откройте приложение → Настройки → Telegram-бот → Подключить. Записи появятся в приложении на всех ваших устройствах.",
     linked: "Готово, бот подключён.\n\nПишите одной фразой: «кофе 2800», «вчера такси 1 500 наличными», «+420 000 зарплата».\n/month — месяц, /today — сегодня, /undo — отменить последнее, /stop — отключить.",
     badLink: "Ссылка устарела или уже использована. Откройте в приложении Настройки → Telegram-бот и нажмите «Подключить» ещё раз.",
@@ -30,6 +37,13 @@ module.exports = {
     today_w: "сегодня", yesterday_w: "вчера", card: "карта", cash: "наличные"
   },
   kz: {
+    noAccounts: "Алдымен Qalta-ны ашып, шоттардағы қалдықты енгізіңіз — жазба сонда шығады.",
+    remindOn: "Кешке күн салыстыруын еске саламын. Уақыты қосымшада өзгереді.",
+    remind: "Кешкі салыстыру: бүгін {n} жазба — шығын {spent}. Бәрі дұрыс па?",
+    remindNone: "Кешкі салыстыру: бүгін жазба жоқ. Жұмсасаңыз — бір жолмен жазыңыз, мысалы «түскі ас 2500».",
+    remindWeek: "Аптада жұмсалды: {spent}. Қосымшада апталық шолу күтіп тұр.",
+    checkBtn: "Бәрі дұрыс", openBtn: "Qalta-ны ашу",
+    checked: "Салыстыру белгіленді. Жайлы кеш.",
     hello: "Бұл Қalta: шығынды бір жолмен жазу.\n\nҚосу үшін қосымшаны ашыңыз → Баптаулар → Telegram-бот → Қосу. Жазбалар барлық құрылғыларыңызда пайда болады.",
     linked: "Дайын, бот қосылды.\n\nБір жолмен жазыңыз: «кофе 2800», «кеше такси 1 500 қолма-қол», «+420 000 жалақы».\n/month — ай, /today — бүгін, /undo — соңғысын болдырмау, /stop — ажырату.",
     badLink: "Сілтеменің мерзімі өткен немесе қолданылған. Қосымшада Баптаулар → Telegram-бот → «Қосу» батырмасын қайта басыңыз.",
@@ -57,6 +71,13 @@ module.exports = {
     today_w: "бүгін", yesterday_w: "кеше", card: "карта", cash: "қолма-қол"
   },
   en: {
+    noAccounts: "First open Qalta and enter your account balances — the entry will appear there.",
+    remindOn: "In the evening I will remind you to check the day. The time is set in the app.",
+    remind: "Evening check: {n} entries today — spent {spent}. All correct?",
+    remindNone: "Evening check: no entries today. If you spent anything, write it in one line, e.g. \"lunch 2500\".",
+    remindWeek: "Spent this week: {spent}. The weekly review is waiting in the app.",
+    checkBtn: "All correct", openBtn: "Open Qalta",
+    checked: "Check-in recorded. Have a good evening.",
     hello: "This is Қalta: log spending in one line.\n\nTo connect, open the app → Settings → Telegram bot → Connect. Entries appear in the app on all your devices.",
     linked: "Done, the bot is connected.\n\nWrite one line: \"coffee 2800\", \"yesterday taxi 1,500 cash\", \"+420,000 salary\".\n/month — this month, /today — today, /undo — undo the last one, /stop — disconnect.",
     badLink: "This link has expired or was used. In the app open Settings → Telegram bot and tap Connect again.",

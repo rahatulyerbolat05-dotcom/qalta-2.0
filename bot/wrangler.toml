@@ -5,3 +5,8 @@ compatibility_date = "2025-09-01"
 
 [vars]
 FIREBASE_PROJECT = "qalta-by-yerbo"
+APP_URL = "https://qalta-v4.web.app"
+
+# Qalta 4 evening reminders: each run sends to the people whose reminder time has come.
+[triggers]
+crons = ["*/15 * * * *"]
